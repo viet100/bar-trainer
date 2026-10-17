@@ -9,6 +9,7 @@ import { INITIAL_DRINK, capacityMl, drinkReducer, liquidMl, type VesselId } from
 import { GLASSES, GLASS_IDS } from "@/game/glassware";
 import { GARNISHES, INGREDIENTS, INGREDIENT_IDS, type GarnishId, type IngredientId } from "@/game/ingredients";
 import { measureDrink, type Measurement } from "@/game/measure";
+import { classicOrder, type Order } from "@/game/order";
 import { CLASSIC_RECIPES } from "@/game/recipes";
 import { usePourController } from "@/hooks/usePourController";
 import { mlToOz } from "@/lib/pour";
@@ -19,19 +20,24 @@ const STIR_STEP = 5;
 const colorOf = (id: string) => INGREDIENTS[id as IngredientId]?.color ?? "#888";
 const oz = (ml: number) => mlToOz(ml).toFixed(2);
 
+// Fixed (no randomness) so server and client render the same first order.
+const FIRST_ORDER = classicOrder([], () => 0);
+
 // 2D placeholder for the bar. Every interaction goes through drinkReducer,
 // so the 3D scene can replace this view without touching game rules.
 export default function BarStation() {
   const [drink, dispatch] = useReducer(drinkReducer, INITIAL_DRINK);
   const [target, setTarget] = useState<VesselId>("glass");
-  const [recipeIndex, setRecipeIndex] = useState(0);
+  const [order, setOrder] = useState<Order>(FIRST_ORDER);
+  const [recent, setRecent] = useState<string[]>([FIRST_ORDER.recipe.name]);
+  const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [memoryMode, setMemoryMode] = useState(false);
   const [report, setReport] = useState<Measurement | null>(null);
   const [shaking, setShaking] = useState(false);
   // A ref, not state: pointerup and lostpointercapture fire back to back and must not both count.
   const shakeStart = useRef<number | null>(null);
 
-  const recipe = CLASSIC_RECIPES[recipeIndex];
+  const recipe = order.recipe;
   const pour = usePourController<IngredientId>((ingredient, ml) =>
     dispatch({ type: "pour", into: target, ingredient, ml }),
   );
@@ -48,12 +54,35 @@ export default function BarStation() {
     setShaking(false);
   };
 
-  const nextDrink = (index: number) => {
+  const takeOrder = (next: Order) => {
     pour.stopPour();
     dispatch({ type: "reset" });
-    setRecipeIndex(index);
+    setOrder(next);
+    setRecent((r) => [...r, next.recipe.name].slice(-5));
     setReport(null);
     setTarget("glass");
+  };
+
+  const nextCustomer = async () => {
+    setLoadingCustomer(true);
+    try {
+      const res = await fetch("/api/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recent }),
+      });
+      if (!res.ok) throw new Error(`order failed: ${res.status}`);
+      takeOrder(await res.json());
+    } catch {
+      takeOrder(classicOrder(recent)); // offline or server down: keep the bar moving
+    } finally {
+      setLoadingCustomer(false);
+    }
+  };
+
+  const practiceClassic = (index: number) => {
+    const r = CLASSIC_RECIPES[index];
+    takeOrder({ ...order, recipe: r, line: `Could I get a ${r.name}, please?`, source: "classic" });
   };
 
   return (
@@ -66,37 +95,58 @@ export default function BarStation() {
       {/* Order */}
       <Panel className="w-full max-w-xl">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-stone-400">Order</span>
+          <button
+            type="button"
+            onClick={nextCustomer}
+            disabled={loadingCustomer}
+            className="rounded-md bg-amber-300 px-3 py-1.5 text-sm font-semibold text-stone-950 transition-colors hover:bg-amber-200 disabled:opacity-50"
+          >
+            {loadingCustomer ? "Someone's walking up…" : "Next customer"}
+          </button>
+          <div className="flex items-center gap-3 text-sm text-stone-400">
             <select
-              value={recipeIndex}
-              onChange={(e) => nextDrink(Number(e.target.value))}
-              className="rounded-md border border-stone-700 bg-stone-900 px-2 py-1"
+              aria-label="Practice a classic"
+              value=""
+              onChange={(e) => practiceClassic(Number(e.target.value))}
+              className="max-w-36 rounded-md border border-stone-700 bg-stone-900 px-2 py-1"
             >
+              <option value="" disabled>
+                Practice a classic
+              </option>
               {CLASSIC_RECIPES.map((r, i) => (
                 <option key={r.name} value={i}>
                   {r.name}
                 </option>
               ))}
             </select>
-          </label>
-          <label className="flex items-center gap-2 text-sm text-stone-400">
-            <input type="checkbox" checked={memoryMode} onChange={(e) => setMemoryMode(e.target.checked)} />
-            Memory mode
-          </label>
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={memoryMode} onChange={(e) => setMemoryMode(e.target.checked)} />
+              Memory
+            </label>
+          </div>
+        </div>
+
+        <div className={`mt-4 transition-opacity ${loadingCustomer ? "opacity-40" : ""}`}>
+          <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+            <span className="font-semibold text-stone-100">{order.customer.name}</span>
+            <span className="text-stone-500">{order.customer.vibe}</span>
+            <span className="rounded border border-emerald-700/60 px-1.5 text-[11px] text-emerald-300">
+              ID checked · {order.customer.age}
+            </span>
+            {order.source === "classic" && <span className="text-[11px] text-stone-500">classic menu</span>}
+          </p>
+          <p className="mt-1 text-lg leading-snug text-stone-100">“{order.line}”</p>
         </div>
 
         {report ? (
           <div className="mt-4 space-y-4">
             <MeasurementReport m={report} />
-            <button type="button" onClick={() => nextDrink((recipeIndex + 1) % CLASSIC_RECIPES.length)} className={btn}>
-              Next drink
-            </button>
           </div>
         ) : memoryMode ? (
-          <p className="mt-3 text-sm text-stone-500">Recipe hidden. Make it from memory.</p>
+          <p className="mt-3 text-sm text-stone-500">{recipe.name}: spec hidden. Make it from memory.</p>
         ) : (
           <div className="mt-3 text-sm">
+            <p className="font-semibold text-amber-200">{recipe.name}</p>
             <p className="text-stone-300">
               {GLASSES[recipe.glass].name} glass · {recipe.technique} · {recipe.ice ? "on the rocks" : "up"} ·{" "}
               {recipe.garnish ? GARNISHES[recipe.garnish] : "no garnish"}
