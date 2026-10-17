@@ -54,9 +54,29 @@ test("rejects dialogue that implies an underage customer, even with a 21+ age", 
   assert.match(reason({ line: "Don't tell anyone I'm a teenager" }), /underage/);
 });
 
+test("catches stated ages and birthdays under 21", () => {
+  for (const line of [
+    "I just turned 19 and this is my first real drink!",
+    "Celebrating my 18th birthday tonight!",
+    "I am seventeen but tall",
+    "I'm 20, so close!",
+    "My sweet sixteen was wild",
+  ]) {
+    assert.match(reason({ line }), /underage/, line);
+  }
+});
+
 test("allows innocent wording that only looks close", () => {
-  assert.ok(parseOrder({ ...valid, line: "Margarita please, I've been coming here for 15 years" }).ok);
-  assert.ok(parseOrder({ ...valid, line: "One minor change: extra lime" }).ok);
+  for (const line of [
+    "Margarita please, I've been coming here for 15 years",
+    "One minor change: extra lime",
+    "I just turned twenty-one, first legal drink!",
+    "Celebrating my 21st birthday!",
+    "I'm 34 and tired",
+    "Turning 30 next week",
+  ]) {
+    assert.ok(parseOrder({ ...valid, line }).ok, line);
+  }
 });
 
 test("rejects dialogue that pushes over-serving", () => {
