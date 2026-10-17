@@ -4,6 +4,7 @@ import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import Bottle from "@/components/Bottle";
 import Glass from "@/components/Glass";
 import HoldButton from "@/components/HoldButton";
+import PourGauge, { type AssistLevel } from "@/components/PourGauge";
 import CustomerPanel from "@/components/sidebar/CustomerPanel";
 import GradeCard from "@/components/sidebar/GradeCard";
 import LiveReadout from "@/components/sidebar/LiveReadout";
@@ -20,7 +21,7 @@ import { CLASSIC_RECIPES } from "@/game/recipes";
 import { scoreDrink, type Score } from "@/game/score";
 import { newShift, parSeconds, recordServe, shiftOver, shiftTips, type Shift, type Tip } from "@/game/shift";
 import { usePourController } from "@/hooks/usePourController";
-import { mlToOz } from "@/lib/pour";
+import { ML_PER_OZ, mlToOz } from "@/lib/pour";
 
 const ICE_SCOOP = 3;
 const STIR_STEP = 5;
@@ -89,6 +90,38 @@ export default function BarStation() {
   );
   const stream = (vessel: VesselId) => (pour.activeId && target === vessel ? colorOf(pour.activeId) : null);
   const glassName = drink.glass ? `${GLASSES[drink.glass].name} glass` : "no glass";
+
+  // Pouring with no glass used to spill straight onto the bar; now the bottle
+  // refuses and the empty spot says why. Goes away with drag-to-pour in 3D.
+  const [nudge, setNudge] = useState(false);
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startPouring = (id: IngredientId) => {
+    if (target === "glass" && !drink.glass) {
+      setNudge(true);
+      if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
+      nudgeTimer.current = setTimeout(() => setNudge(false), 2500);
+      return;
+    }
+    pour.startPour(id);
+  };
+
+  // Pour assist: only for the vessel being poured into, and only while pouring.
+  const [assist, setAssist] = useState<AssistLevel>("learn");
+  const vesselOf = (v: VesselId) => (v === "glass" ? drink.inGlass : drink.inShaker);
+  const recipeOz = (id: IngredientId) => recipe.ingredients.find((i) => i.id === id)?.oz ?? null;
+  const gaugeFor = (v: VesselId) => {
+    if (!pour.activeId || target !== v) return null;
+    const inVessel = vesselOf(v).contents[pour.activeId] ?? 0;
+    return <PourGauge level={assist} oz={mlToOz(inVessel)} targetOz={recipeOz(pour.activeId)} />;
+  };
+  // Where the liquid should stand once this ingredient reaches its recipe amount.
+  const targetLineMl = (v: VesselId) => {
+    if (assist !== "learn" || !pour.activeId || target !== v) return null;
+    const wantOz = recipeOz(pour.activeId);
+    if (wantOz === null) return null;
+    const vessel = vesselOf(v);
+    return liquidMl(vessel) - (vessel.contents[pour.activeId] ?? 0) + wantOz * ML_PER_OZ;
+  };
 
   const startShake = () => {
     shakeStart.current = performance.now();
@@ -192,7 +225,7 @@ export default function BarStation() {
                 name={INGREDIENTS[id].name}
                 color={INGREDIENTS[id].color}
                 pouring={pour.activeId === id}
-                onStart={() => pour.startPour(id)}
+                onStart={() => startPouring(id)}
                 onStop={pour.stopPour}
               />
             ))}
@@ -208,6 +241,7 @@ export default function BarStation() {
             targeted={target === "glass"}
             onTarget={() => setTarget("glass")}
             volume={`${oz(liquidMl(drink.inGlass))} / ${oz(capacityMl(drink, "glass"))} oz`}
+            gauge={gaugeFor("glass")}
             vessel={
               drink.glass ? (
                 <Glass
@@ -216,10 +250,15 @@ export default function BarStation() {
                   capacityMl={capacityMl(drink, "glass")}
                   colorOf={colorOf}
                   streamColor={stream("glass")}
+                  targetMl={targetLineMl("glass")}
                 />
               ) : (
-                <div className="grid h-full place-items-center rounded-b-[2rem] border-2 border-dashed border-stone-700 px-2 text-center text-xs text-stone-500">
-                  Pick a glass below
+                <div
+                  className={`grid h-full place-items-center rounded-b-[2rem] border-2 border-dashed px-2 text-center text-xs transition-colors ${
+                    nudge ? "animate-shake border-red-400 text-red-300" : "border-stone-700 text-stone-500"
+                  }`}
+                >
+                  {nudge ? "Pick a glass first, or pour into the tin" : "Pick a glass below"}
                 </div>
               )
             }
@@ -234,6 +273,7 @@ export default function BarStation() {
             onTarget={() => setTarget("shaker")}
             volume={`${oz(liquidMl(drink.inShaker))} oz`}
             shaking={shaking}
+            gauge={gaugeFor("shaker")}
             vessel={
               <Glass
                 contents={drink.inShaker.contents}
@@ -241,6 +281,7 @@ export default function BarStation() {
                 capacityMl={capacityMl(drink, "shaker")}
                 colorOf={colorOf}
                 streamColor={stream("shaker")}
+                targetMl={targetLineMl("shaker")}
               />
             }
           >
@@ -375,11 +416,36 @@ export default function BarStation() {
             <input type="checkbox" checked={memoryMode} onChange={(e) => setMemoryMode(e.target.checked)} />
             Memory mode
           </label>
+          <div className="flex w-full items-center justify-between gap-2">
+            <span>Pour assist</span>
+            <span className="flex overflow-hidden rounded-md border border-stone-700">
+              {(["learn", "practice", "pro"] as const).map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  onClick={() => setAssist(level)}
+                  aria-pressed={assist === level}
+                  title={ASSIST_HELP[level]}
+                  className={`px-2.5 py-1 capitalize transition-colors ${
+                    assist === level ? "bg-amber-300 font-semibold text-stone-950" : "hover:bg-stone-800"
+                  }`}
+                >
+                  {level}
+                </button>
+              ))}
+            </span>
+          </div>
         </footer>
       </aside>
     </main>
   );
 }
+
+const ASSIST_HELP: Record<AssistLevel, string> = {
+  learn: "Ounces, counts and a target line at the glass",
+  practice: "Counts only: one dot per second, 0.5 oz each",
+  pro: "No help, like a real bar",
+};
 
 const toolBtn =
   "rounded-md border border-stone-700 bg-stone-900/80 px-2.5 py-1 text-sm text-stone-300 transition-colors hover:border-stone-500 hover:text-white";
@@ -411,11 +477,12 @@ type VesselCardProps = {
   onTarget: () => void;
   volume: string;
   vessel: ReactNode;
+  gauge?: ReactNode;
   shaking?: boolean;
   children: ReactNode;
 };
 
-function VesselCard({ title, targeted, onTarget, volume, vessel, shaking, children }: VesselCardProps) {
+function VesselCard({ title, targeted, onTarget, volume, vessel, gauge, shaking, children }: VesselCardProps) {
   return (
     <div className="flex w-56 flex-col items-center gap-2">
       <button
@@ -428,7 +495,14 @@ function VesselCard({ title, targeted, onTarget, volume, vessel, shaking, childr
       >
         {targeted ? `▼ Pouring into ${title}` : `Pour into ${title}`}
       </button>
-      <div className={`mt-12 h-36 w-28 ${shaking ? "animate-shake" : ""}`}>{vessel}</div>
+      <div
+        className={`relative mt-12 h-36 w-28 transition-[filter] duration-200 ${shaking ? "animate-shake" : ""} ${
+          targeted ? "drop-shadow-[0_0_14px_rgba(252,211,77,0.45)]" : "opacity-80"
+        }`}
+      >
+        {vessel}
+        {gauge}
+      </div>
       <p className="font-mono text-[11px] tabular-nums text-stone-400">{volume}</p>
       <div className="flex flex-wrap justify-center gap-1.5">{children}</div>
     </div>
