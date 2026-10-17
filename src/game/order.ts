@@ -31,6 +31,17 @@ const UNDERAGE_HINTS = [
   /\b(?:teen|teenager)\b/i,
 ];
 
+// Catches dialogue that pushes over-serving, even when the recipe itself stays under the liquor cap.
+const SPIRIT_WORDS = "shots?|pours?|tequila|vodka|gin|rum|booze|liquor|alcohol";
+const OVERSERVING_HINTS = [
+  new RegExp(`\\b(?:double|triple|quadruple)\\s+(?:${SPIRIT_WORDS}|it|that)\\b`, "i"),
+  new RegExp(`\\bextra\\s+(?:strong|${SPIRIT_WORDS})\\b`, "i"),
+  new RegExp(`\\bheavy\\s+(?:on\\s+the\\s+)?(?:${SPIRIT_WORDS})\\b`, "i"),
+  /\bmake\s+it\s+(?:strong|stronger|a\s+double)\b/i,
+  /\b(?:chug|chugging|wasted|hammered|blackout|plastered|get\s+drunk|shit-?faced)\b/i,
+  /\bdriv(?:e|ing)\s+(?:home|after)\b/i,
+];
+
 export const TECHNIQUES: Technique[] = ["build", "shake", "stir"];
 
 export type ParseResult = { ok: true; order: Order } | { ok: false; reason: string };
@@ -61,6 +72,7 @@ export function parseOrder(raw: unknown): ParseResult {
     const line = text(raw.line, "line");
     const spoken = `${customer.name} ${customer.vibe} ${line}`;
     if (UNDERAGE_HINTS.some((re) => re.test(spoken))) throw new Error("dialogue suggests an underage customer");
+    if (OVERSERVING_HINTS.some((re) => re.test(spoken))) throw new Error("dialogue pushes over-serving");
 
     if (!has(GLASSES, raw.glass)) throw new Error(`unknown glass "${String(raw.glass)}"`);
     const glass = raw.glass;

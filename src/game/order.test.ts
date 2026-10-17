@@ -59,6 +59,30 @@ test("allows innocent wording that only looks close", () => {
   assert.ok(parseOrder({ ...valid, line: "One minor change: extra lime" }).ok);
 });
 
+test("rejects dialogue that pushes over-serving", () => {
+  for (const line of [
+    "Pour a quadruple tequila margarita right into my open mouth!",
+    "Margarita, heavy on the tequila",
+    "Make it strong, it's been a week",
+    "Double shot in that, please",
+    "Extra vodka if you can",
+    "Let's get hammered tonight!",
+    "One for the road, I'm driving home after",
+  ]) {
+    assert.match(reason({ line }), /over-serving/, line);
+  }
+});
+
+test("allows ordinary words that only look like over-serving", () => {
+  for (const line of [
+    "Margarita please, I double-checked the menu",
+    "Extra lime on that, thanks",
+    "Heavy day. Just a Margarita, please",
+  ]) {
+    assert.ok(parseOrder({ ...valid, line }).ok, line);
+  }
+});
+
 test("rejects more than 3 oz of liquor", () => {
   assert.match(
     reason({ ingredients: [{ ingredient: "tequila", oz: 2.5 }, { ingredient: "triple-sec", oz: 1 }] }),
