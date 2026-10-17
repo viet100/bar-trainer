@@ -5,9 +5,10 @@ type CustomerPanelProps = {
   order: Order;
   arrival: number; // bumps on every new customer to replay the walk-in
   loading: boolean;
+  reaction?: string; // after serving, the customer's verdict replaces their order line
 };
 
-export default function CustomerPanel({ order, arrival, loading }: CustomerPanelProps) {
+export default function CustomerPanel({ order, arrival, loading, reaction }: CustomerPanelProps) {
   const { customer } = order;
 
   return (
@@ -17,10 +18,10 @@ export default function CustomerPanel({ order, arrival, loading }: CustomerPanel
           <CustomerAvatar name={customer.name} />
         </div>
         <p
-          key={`b${arrival}`}
+          key={`b${arrival}${reaction ? "r" : ""}`}
           className="mb-6 animate-bubble-in rounded-2xl rounded-bl-sm bg-stone-100 px-3 py-2 text-sm leading-snug text-stone-900 shadow-lg shadow-black/30"
         >
-          {order.line}
+          {reaction ?? order.line}
         </p>
       </div>
       <p className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">

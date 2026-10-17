@@ -61,6 +61,9 @@ export default function MeasurementReport({ m }: { m: Measurement }) {
           <Mark ok={m.garnish.actual === m.garnish.expected} /> Garnish: {garnishName(m.garnish.actual)}{" "}
           <span className="text-stone-500">(want {garnishName(m.garnish.expected)})</span>
         </li>
+        {m.leftInShakerOz > 0 && (
+          <li className="text-red-400">✗ Left {m.leftInShakerOz.toFixed(2)} oz in the shaker (never strained)</li>
+        )}
         <li>
           Total error {m.totalErrorOz.toFixed(2)} oz
           {m.spilledOz > 0 && <span className="text-red-400"> · spilled {m.spilledOz.toFixed(2)} oz</span>}

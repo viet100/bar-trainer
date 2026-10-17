@@ -4,6 +4,10 @@
 const hits = new Map<string, number[]>();
 const MAX_KEYS = 5000;
 
+// The first x-forwarded-for entry is the client on Vercel-style proxies.
+export const visitorOf = (request: Request) =>
+  request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "local";
+
 export function allow(key: string, limit: number, windowMs: number, now = Date.now()): boolean {
   const recent = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
   const ok = recent.length < limit;
