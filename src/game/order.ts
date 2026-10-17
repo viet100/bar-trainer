@@ -23,8 +23,13 @@ const SERVED_UP: GlassId[] = ["coupe", "martini", "shot"]; // glasses that never
 const ICE_ROOM = 0.8; // share of a glass left for liquid once ice is in
 
 // Catches an underage customer written into the dialogue even when the age field says 21+.
+const UNDER_21 = String.raw`(?:[1-9]|1\d|20|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)`;
 const UNDERAGE_HINTS = [
-  /\b(?:[1-9]|1\d|20)\s*(?:years?\s*old|yrs?\s*old|y\/?o)\b/i,
+  new RegExp(String.raw`\b${UNDER_21}\s*(?:years?\s*old|yrs?\s*old|y\/?o)\b`, "i"),
+  // "I'm 19", "just turned nineteen" (but not "twenty-one", which is 21+)
+  new RegExp(String.raw`\b(?:i'?m|i\s+am|just\s+turned|turning)\s+${UNDER_21}\b(?!-)`, "i"),
+  /\b(?:1\d|20)(?:st|nd|rd|th)\s+birthday\b/i,
+  /\b(?:sweet\s+sixteen|quincea[ñn]era)\b/i,
   /\bfake\s*id\b/i,
   /\bunder\s*age\b|\bunderage\b/i, // not "minor": too many innocent uses ("a minor tweak")
   /\b(?:high|middle|junior\s*high)\s*school(?:er)?\b/i,
