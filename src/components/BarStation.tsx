@@ -4,16 +4,21 @@ import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import Bottle from "@/components/Bottle";
 import Glass from "@/components/Glass";
 import HoldButton from "@/components/HoldButton";
-import MeasurementReport from "@/components/MeasurementReport";
 import CustomerPanel from "@/components/sidebar/CustomerPanel";
+import GradeCard from "@/components/sidebar/GradeCard";
 import LiveReadout from "@/components/sidebar/LiveReadout";
 import OrderTicket from "@/components/sidebar/OrderTicket";
+import ShiftBar from "@/components/sidebar/ShiftBar";
+import ShiftSummary from "@/components/sidebar/ShiftSummary";
 import { INITIAL_DRINK, capacityMl, drinkReducer, liquidMl, type VesselId } from "@/game/drink";
 import { GLASSES, GLASS_IDS } from "@/game/glassware";
+import { fallbackGrade, type Grade } from "@/game/grade";
 import { GARNISHES, INGREDIENTS, INGREDIENT_IDS, type GarnishId, type IngredientId } from "@/game/ingredients";
 import { measureDrink, type Measurement } from "@/game/measure";
 import { classicOrder, type Order } from "@/game/order";
 import { CLASSIC_RECIPES } from "@/game/recipes";
+import { scoreDrink, type Score } from "@/game/score";
+import { newShift, parSeconds, recordServe, shiftOver, shiftTips, type Shift, type Tip } from "@/game/shift";
 import { usePourController } from "@/hooks/usePourController";
 import { mlToOz } from "@/lib/pour";
 
@@ -41,6 +46,23 @@ async function fetchOrder(recent: string[]): Promise<Order> {
   }
 }
 
+// Never rejects: if the grader is unreachable, the rubric's own grade is used.
+async function fetchGrade(order: Order, measurement: Measurement): Promise<Grade> {
+  try {
+    const res = await fetch("/api/grade", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order, measurement }),
+    });
+    if (!res.ok) throw new Error(`grade failed: ${res.status}`);
+    return (await res.json()).grade;
+  } catch {
+    return fallbackGrade(scoreDrink(measurement));
+  }
+}
+
+type Served = { measurement: Measurement; score: Score; grade: Grade | null; tip: Tip | null };
+
 // Owns the game state and splits the screen: the bar on the left (2D placeholder
 // for the 3D scene), and the customer and order column on the right.
 export default function BarStation() {
@@ -51,7 +73,12 @@ export default function BarStation() {
   const [recent, setRecent] = useState<string[]>([FIRST_ORDER.recipe.name]);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [memoryMode, setMemoryMode] = useState(false);
-  const [report, setReport] = useState<Measurement | null>(null);
+  const [served, setServed] = useState<Served | null>(null);
+  const [shift, setShift] = useState<Shift>(() => newShift());
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  // Service clock: starts when the customer arrives, stops at Serve.
+  const [arrivedAt, setArrivedAt] = useState(0);
+  const [now, setNow] = useState(0);
   const [shaking, setShaking] = useState(false);
   // A ref, not state: pointerup and lostpointercapture fire back to back and must not both count.
   const shakeStart = useRef<number | null>(null);
@@ -82,18 +109,62 @@ export default function BarStation() {
   }, []);
 
   const takeOrder = (next: Order) => {
-    pour.stopPour();
+    pour.reset();
     dispatch({ type: "reset" });
     setOrder(next);
     setArrival((n) => n + 1);
     const nextRecent = [...recent, next.recipe.name].slice(-5);
     setRecent(nextRecent);
-    setReport(null);
+    setServed(null);
     setTarget("glass");
+    setArrivedAt(Date.now());
+    setNow(Date.now());
     upcoming.current = fetchOrder(nextRecent);
   };
 
+  // Tick the service clock once a second until the drink is served.
+  useEffect(() => {
+    if (served) return;
+    const id = setInterval(() => {
+      const t = Date.now();
+      setArrivedAt((a) => a || t); // the first customer is on screen before the clock exists
+      setNow(t);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [served]);
+  const seconds = arrivedAt ? Math.max(0, (now - arrivedAt) / 1000) : 0;
+
+  const serveDrink = async () => {
+    pour.stopPour();
+    const measurement = measureDrink(drink, recipe);
+    const servedSeconds = arrivedAt ? (Date.now() - arrivedAt) / 1000 : 0;
+    setNow(Date.now());
+    setServed({ measurement, score: scoreDrink(measurement), grade: null, tip: null });
+
+    const grade = await fetchGrade(order, measurement);
+    const nextShift = recordServe(shift, {
+      drink: recipe.name,
+      stars: grade.stars,
+      sendBack: grade.sendBack,
+      seconds: servedSeconds,
+      par: parSeconds(recipe),
+      measurement,
+    });
+    setShift(nextShift);
+    setServed((s) => s && { ...s, grade, tip: nextShift.served.at(-1)!.tip });
+  };
+
+  const startNextShift = () => {
+    setShift((s) => newShift(s.number + 1));
+    setSummaryOpen(false);
+    void nextCustomer();
+  };
+
   const nextCustomer = async () => {
+    if (shiftOver(shift) && !summaryOpen) {
+      setSummaryOpen(true);
+      return;
+    }
     setLoadingCustomer(true);
     const next = await (upcoming.current ?? fetchOrder(recent));
     setLoadingCustomer(false);
@@ -223,39 +294,65 @@ export default function BarStation() {
           <button
             type="button"
             onClick={nextCustomer}
-            disabled={loadingCustomer}
+            disabled={loadingCustomer || summaryOpen || (!!served && !served.grade)}
             className="text-xs text-stone-400 underline-offset-2 hover:text-stone-200 hover:underline disabled:opacity-40"
           >
             Skip customer
           </button>
         </header>
 
-        <CustomerPanel order={order} arrival={arrival} loading={loadingCustomer} />
-        {loadingCustomer && <p className="-mt-2 text-sm text-amber-200">Someone&apos;s walking up…</p>}
-
-        <OrderTicket recipe={recipe} ticketNo={arrival} hidden={memoryMode && !report} />
-
-        <LiveReadout
-          pouringName={pour.activeId ? INGREDIENTS[pour.activeId].name : null}
-          targetName={target === "glass" ? glassName : "shaker tin"}
-          currentPourOz={mlToOz(pour.currentPourMl)}
-          glassOz={mlToOz(liquidMl(drink.inGlass))}
-          glassCapacityOz={mlToOz(capacityMl(drink, "glass"))}
-          shakerOz={mlToOz(liquidMl(drink.inShaker))}
-          shakeSeconds={drink.shakerMix.shakeMs / 1000}
-          stirTurns={drink.shakerMix.stirTurns}
-          spilledOz={mlToOz(drink.spilledMl)}
+        <ShiftBar
+          shiftNumber={shift.number}
+          customer={shift.served.length + (served ? 0 : 1)}
+          tips={shiftTips(shift)}
+          streak={shift.streak}
+          seconds={seconds}
+          par={parSeconds(recipe)}
         />
 
-        {report ? (
-          <section className="space-y-3 rounded-xl border border-stone-800 bg-stone-950/60 p-3">
-            <MeasurementReport m={report} />
-            <PrimaryButton onClick={nextCustomer} disabled={loadingCustomer}>
-              {loadingCustomer ? "Someone's walking up…" : "Next customer"}
-            </PrimaryButton>
-          </section>
+        {summaryOpen ? (
+          <ShiftSummary shift={shift} onNextShift={startNextShift} />
         ) : (
-          <PrimaryButton onClick={() => setReport(measureDrink(drink, recipe))}>Serve</PrimaryButton>
+          <>
+            <CustomerPanel order={order} arrival={arrival} loading={loadingCustomer} reaction={served?.grade?.reaction} />
+            {loadingCustomer && <p className="-mt-2 text-sm text-amber-200">Someone&apos;s walking up…</p>}
+
+            {served ? (
+              <>
+                <GradeCard
+                  customerName={order.customer.name}
+                  measurement={served.measurement}
+                  score={served.score}
+                  grade={served.grade}
+                  tip={served.tip}
+                />
+                <PrimaryButton onClick={nextCustomer} disabled={loadingCustomer || !served.grade}>
+                  {loadingCustomer
+                    ? "Someone's walking up…"
+                    : shiftOver(shift)
+                      ? "End of shift"
+                      : "Next customer"}
+                </PrimaryButton>
+              </>
+            ) : (
+              <>
+                <LiveReadout
+                  pouringName={pour.activeId ? INGREDIENTS[pour.activeId].name : null}
+                  targetName={target === "glass" ? glassName : "shaker tin"}
+                  currentPourOz={mlToOz(pour.currentPourMl)}
+                  glassOz={mlToOz(liquidMl(drink.inGlass))}
+                  glassCapacityOz={mlToOz(capacityMl(drink, "glass"))}
+                  shakerOz={mlToOz(liquidMl(drink.inShaker))}
+                  shakeSeconds={drink.shakerMix.shakeMs / 1000}
+                  stirTurns={drink.shakerMix.stirTurns}
+                  spilledOz={mlToOz(drink.spilledMl)}
+                />
+                <PrimaryButton onClick={serveDrink}>Serve</PrimaryButton>
+              </>
+            )}
+
+            <OrderTicket recipe={recipe} ticketNo={arrival} hidden={memoryMode && !served} />
+          </>
         )}
 
         <footer className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-stone-800 pt-3 text-sm text-stone-400">

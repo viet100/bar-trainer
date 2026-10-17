@@ -1,7 +1,7 @@
 import { classicOrder, parseOrder } from "@/game/order";
 import { generateJson } from "@/server/gemini";
 import { buildOrderPrompt } from "@/server/orderPrompt";
-import { allow } from "@/server/rateLimit";
+import { allow, visitorOf } from "@/server/rateLimit";
 
 const ATTEMPTS = 2;
 // Real play needs about one order a minute (more with skips). Each order can
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     : [];
 
   // Over the limit, the customer still arrives, just off the free classic menu.
-  const visitor = request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "local";
+  const visitor = visitorOf(request);
   if (!allow(`ip:${visitor}`, PER_VISITOR_PER_MIN, MINUTE) || !allow("all", OVERALL_PER_MIN, MINUTE)) {
     console.warn(`[order] rate limited ${visitor}, serving a classic`);
     return Response.json(classicOrder(recent));

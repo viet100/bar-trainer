@@ -78,5 +78,11 @@ export function usePourController<Id extends string>(
     };
   }, [stopPour]);
 
-  return { activeId, currentPourMl, startPour, stopPour };
+  // New customer: stop any pour and clear the "last pour" readout.
+  const reset = useCallback(() => {
+    stopPour();
+    setCurrentPourMl(0);
+  }, [stopPour]);
+
+  return { activeId, currentPourMl, startPour, stopPour, reset };
 }

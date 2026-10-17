@@ -47,12 +47,19 @@ const OVERSERVING_HINTS = [
   /\bdriv(?:e|ing)\s+(?:home|after)\b/i,
 ];
 
+// Shared by orders and graded reactions: anything a customer says goes through here.
+export function dialogueProblem(spoken: string): string | null {
+  if (UNDERAGE_HINTS.some((re) => re.test(spoken))) return "dialogue suggests an underage customer";
+  if (OVERSERVING_HINTS.some((re) => re.test(spoken))) return "dialogue pushes over-serving";
+  return null;
+}
+
 export const TECHNIQUES: Technique[] = ["build", "shake", "stir"];
 
 export type ParseResult = { ok: true; order: Order } | { ok: false; reason: string };
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
-const has = <T extends object>(obj: T, key: unknown): key is keyof T =>
+export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+export const has = <T extends object>(obj: T, key: unknown): key is keyof T =>
   typeof key === "string" && Object.hasOwn(obj, key);
 
 function text(v: unknown, field: string): string {
@@ -75,9 +82,8 @@ export function parseOrder(raw: unknown): ParseResult {
 
     const customer = { name: text(raw.customerName, "customer name"), age, vibe: text(raw.customerVibe, "customer vibe") };
     const line = text(raw.line, "line");
-    const spoken = `${customer.name} ${customer.vibe} ${line}`;
-    if (UNDERAGE_HINTS.some((re) => re.test(spoken))) throw new Error("dialogue suggests an underage customer");
-    if (OVERSERVING_HINTS.some((re) => re.test(spoken))) throw new Error("dialogue pushes over-serving");
+    const problem = dialogueProblem(`${customer.name} ${customer.vibe} ${line}`);
+    if (problem) throw new Error(problem);
 
     if (!has(GLASSES, raw.glass)) throw new Error(`unknown glass "${String(raw.glass)}"`);
     const glass = raw.glass;
@@ -119,6 +125,30 @@ export function parseOrder(raw: unknown): ParseResult {
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
   }
+}
+
+// An order that went to the browser and came back is untrusted again; this
+// re-runs it through the same checks as a fresh Gemini order.
+export function recheckOrder(order: unknown): ParseResult {
+  if (!isObject(order) || !isObject(order.customer) || !isObject(order.recipe)) {
+    return { ok: false, reason: "order is malformed" };
+  }
+  const { customer, recipe } = order;
+  const result = parseOrder({
+    customerName: customer.name,
+    customerAge: customer.age,
+    customerVibe: customer.vibe,
+    line: order.line,
+    drinkName: recipe.name,
+    glass: recipe.glass,
+    technique: recipe.technique,
+    ice: recipe.ice,
+    garnish: recipe.garnish ?? "none",
+    ingredients: Array.isArray(recipe.ingredients)
+      ? recipe.ingredients.map((i) => (isObject(i) ? { ingredient: i.id, oz: i.oz } : i))
+      : recipe.ingredients,
+  });
+  return result.ok && order.source === "classic" ? { ok: true, order: { ...result.order, source: "classic" } } : result;
 }
 
 const REGULARS: Customer[] = [

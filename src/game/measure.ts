@@ -1,5 +1,5 @@
 import { mlToOz } from "../lib/pour.ts";
-import type { DrinkState } from "./drink.ts";
+import { liquidMl, type DrinkState } from "./drink.ts";
 import type { GlassId } from "./glassware.ts";
 import type { GarnishId, IngredientId } from "./ingredients.ts";
 import type { Recipe, Technique } from "./recipes.ts";
@@ -29,6 +29,7 @@ export type Measurement = {
   garnish: { expected: GarnishId | null; actual: GarnishId | null };
   totalErrorOz: number; // sum of |errorOz|
   spilledOz: number;
+  leftInShakerOz: number; // made but never strained into the glass
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -72,5 +73,6 @@ export function measureDrink(drink: DrinkState, recipe: Recipe): Measurement {
     garnish: { expected: recipe.garnish, actual: drink.garnish },
     totalErrorOz: round2(ingredients.reduce((sum, i) => sum + Math.abs(i.errorOz), 0)),
     spilledOz: round2(mlToOz(drink.spilledMl)),
+    leftInShakerOz: round2(mlToOz(liquidMl(drink.inShaker))),
   };
 }
