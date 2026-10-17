@@ -3,33 +3,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FLOW_RATE_ML_PER_S } from "@/lib/pour";
 
-// ingredientId -> ml in the glass, keys kept in first-pour order
-export type GlassContents = Record<string, number>;
-
-export type PourState = {
-  contents: GlassContents;
-  totalMl: number;
-  spilledMl: number;
-  activeId: string | null;
-  // volume of the current (or most recent) pour, including spill
-  currentPourMl: number;
-};
-
-const EMPTY: PourState = {
-  contents: {},
-  totalMl: 0,
-  spilledMl: 0,
-  activeId: null,
-  currentPourMl: 0,
-};
-
-export function usePourController(
-  capacityMl: number,
+// Turns a held bottle into a stream of timed pour deltas. Where the liquid
+// lands (and whether it fits) is the caller's business.
+export function usePourController<Id extends string>(
+  onPour: (id: Id, ml: number) => void,
   flowRateMlPerS = FLOW_RATE_ML_PER_S,
 ) {
-  const [state, setState] = useState<PourState>(EMPTY);
-  // The rAF loop reads and writes this ref so it never sees stale React state.
-  const live = useRef<PourState>(EMPTY);
+  const [activeId, setActiveId] = useState<Id | null>(null);
+  // volume of the current (or most recent) pour
+  const [currentPourMl, setCurrentPourMl] = useState(0);
+
+  const onPourRef = useRef(onPour);
+  useEffect(() => {
+    onPourRef.current = onPour;
+  });
+
+  // The rAF loop reads these refs so it never sees stale React state.
+  const active = useRef<Id | null>(null);
+  const poured = useRef(0);
   const lastTs = useRef(0);
   const raf = useRef<number | null>(null);
 
@@ -37,58 +28,44 @@ export function usePourController(
   // don't change how much gets poured.
   const advance = useCallback(
     (now: number) => {
-      const s = live.current;
       const dt = now - lastTs.current;
-      if (!s.activeId || dt <= 0) return;
+      if (!active.current || dt <= 0) return;
       lastTs.current = now;
-
-      const poured = (dt / 1000) * flowRateMlPerS;
-      const kept = Math.min(poured, Math.max(0, capacityMl - s.totalMl));
-      live.current = {
-        ...s,
-        contents:
-          kept > 0
-            ? { ...s.contents, [s.activeId]: (s.contents[s.activeId] ?? 0) + kept }
-            : s.contents,
-        totalMl: s.totalMl + kept,
-        spilledMl: s.spilledMl + (poured - kept),
-        currentPourMl: s.currentPourMl + poured,
-      };
+      const ml = (dt / 1000) * flowRateMlPerS;
+      poured.current += ml;
+      onPourRef.current(active.current, ml);
     },
-    [capacityMl, flowRateMlPerS],
+    [flowRateMlPerS],
   );
 
   const stopPour = useCallback(() => {
-    if (!live.current.activeId) return;
+    if (!active.current) return;
     if (raf.current !== null) cancelAnimationFrame(raf.current);
     raf.current = null;
     advance(performance.now()); // count the partial frame since the last tick
-    live.current = { ...live.current, activeId: null };
-    setState(live.current);
+    active.current = null;
+    setActiveId(null);
+    setCurrentPourMl(poured.current);
   }, [advance]);
 
   const startPour = useCallback(
-    (id: string) => {
+    (id: Id) => {
       stopPour();
+      active.current = id;
+      poured.current = 0;
       lastTs.current = performance.now();
-      live.current = { ...live.current, activeId: id, currentPourMl: 0 };
-      setState(live.current);
+      setActiveId(id);
+      setCurrentPourMl(0);
 
       const loop = (now: number) => {
         advance(now);
-        setState(live.current);
+        setCurrentPourMl(poured.current);
         raf.current = requestAnimationFrame(loop);
       };
       raf.current = requestAnimationFrame(loop);
     },
     [advance, stopPour],
   );
-
-  const reset = useCallback(() => {
-    stopPour();
-    live.current = EMPTY;
-    setState(EMPTY);
-  }, [stopPour]);
 
   // A missed pointerup (alt-tab, tab hidden) must not leave the bottle pouring.
   useEffect(() => {
@@ -101,5 +78,5 @@ export function usePourController(
     };
   }, [stopPour]);
 
-  return { ...state, startPour, stopPour, reset };
+  return { activeId, currentPourMl, startPour, stopPour };
 }
