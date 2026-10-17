@@ -1,0 +1,36 @@
+import CustomerAvatar from "@/components/sidebar/CustomerAvatar";
+import type { Order } from "@/game/order";
+
+type CustomerPanelProps = {
+  order: Order;
+  arrival: number; // bumps on every new customer to replay the walk-in
+  loading: boolean;
+};
+
+export default function CustomerPanel({ order, arrival, loading }: CustomerPanelProps) {
+  const { customer } = order;
+
+  return (
+    <section aria-live="polite" className={`transition-opacity duration-300 ${loading ? "opacity-30" : ""}`}>
+      <div className="flex items-end gap-3">
+        <div key={`a${arrival}`} className="h-24 w-20 shrink-0 animate-walk-in">
+          <CustomerAvatar name={customer.name} />
+        </div>
+        <p
+          key={`b${arrival}`}
+          className="mb-6 animate-bubble-in rounded-2xl rounded-bl-sm bg-stone-100 px-3 py-2 text-sm leading-snug text-stone-900 shadow-lg shadow-black/30"
+        >
+          {order.line}
+        </p>
+      </div>
+      <p className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+        <span className="font-semibold text-stone-100">{customer.name}</span>
+        <span className="rounded border border-emerald-700/60 px-1.5 text-[11px] text-emerald-300">
+          ID checked · {customer.age}
+        </span>
+        {order.source === "classic" && <span className="text-[11px] text-stone-500">classic menu</span>}
+      </p>
+      <p className="text-xs text-stone-500">{customer.vibe}</p>
+    </section>
+  );
+}
