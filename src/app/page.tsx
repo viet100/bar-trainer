@@ -1,5 +1,5 @@
-import PourStation from "@/components/PourStation";
+import BarStation from "@/components/BarStation";
 
 export default function Home() {
-  return <PourStation />;
+  return <BarStation />;
 }
