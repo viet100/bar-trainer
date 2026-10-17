@@ -4,10 +4,11 @@ type GlassProps = {
   capacityMl: number;
   colorOf: (id: string) => string;
   streamColor: string | null;
+  targetMl?: number | null; // dashed line where the current pour should stop
 };
 
 // Sized by its parent so the same view works for glasses and the shaker tin.
-export default function Glass({ contents, ice, capacityMl, colorOf, streamColor }: GlassProps) {
+export default function Glass({ contents, ice, capacityMl, colorOf, streamColor, targetMl }: GlassProps) {
   const totalMl = Object.values(contents).reduce((sum: number, ml) => sum + (ml ?? 0), 0);
   const fill = capacityMl > 0 ? Math.min(1, totalMl / capacityMl) : 0;
 
@@ -27,6 +28,12 @@ export default function Glass({ contents, ice, capacityMl, colorOf, streamColor 
             <div key={id} style={{ flex: `${ml} 1 0`, backgroundColor: colorOf(id) }} />
           ))}
         </div>
+        {targetMl != null && capacityMl > 0 && (
+          <div
+            className="absolute inset-x-0 border-t-2 border-dashed border-amber-300/90 transition-[bottom] duration-200"
+            style={{ bottom: `${Math.min(1, targetMl / capacityMl) * 100}%` }}
+          />
+        )}
         <div className="absolute inset-x-2 bottom-2 flex flex-wrap-reverse justify-center gap-1">
           {Array.from({ length: ice }, (_, i) => (
             <span key={i} className="size-4 rounded-[3px] border border-white/60 bg-white/35" />
