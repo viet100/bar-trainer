@@ -10,6 +10,7 @@ export type Order = {
   line: string; // what the customer says
   recipe: Recipe; // the exact spec the bartender is graded against
   source: "gemini" | "classic";
+  targeting?: string[]; // weak spots from the trainee's memory that this order was picked to practise
 };
 
 // Safety and realism limits. Everything Gemini returns passes through parseOrder,

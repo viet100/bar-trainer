@@ -1,7 +1,9 @@
 import { Stars } from "@/components/sidebar/GradeCard";
 import { summarize, type Shift } from "@/game/shift";
 
-export default function ShiftSummary({ shift, onNextShift }: { shift: Shift; onNextShift: () => void }) {
+type ShiftSummaryProps = { shift: Shift; onNextShift: () => void; remembered: boolean };
+
+export default function ShiftSummary({ shift, onNextShift, remembered }: ShiftSummaryProps) {
   const sum = summarize(shift);
 
   return (
@@ -22,6 +24,9 @@ export default function ShiftSummary({ shift, onNextShift }: { shift: Shift; onN
       <div className="rounded-lg bg-stone-900 p-2.5 text-sm">
         <p className="text-[11px] uppercase tracking-widest text-stone-500">Work on next</p>
         <p className="mt-0.5 text-stone-200">{sum.focus ?? "No steady pour errors this shift. Clean work."}</p>
+        {remembered && (
+          <p className="mt-1.5 text-xs text-sky-300">Saved to your Backboard memory. Next shift&apos;s customers will order to test it.</p>
+        )}
       </div>
 
       <ol className="space-y-1 text-sm">
