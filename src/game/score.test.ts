@@ -17,9 +17,10 @@ const shakeMargarita = (tequilaOz = 2): DrinkAction[] => [
   { type: "pour", into: "shaker", ingredient: "triple-sec", ml: oz(1) },
   { type: "pour", into: "shaker", ingredient: "lime-juice", ml: oz(1) },
   { type: "addIce", into: "shaker", cubes: 6 },
+  { type: "capShaker" },
   { type: "shake", ms: 10000 },
 ];
-const finish: DrinkAction[] = [{ type: "strain" }, { type: "garnish", garnish: "lime-wedge" }];
+const finish: DrinkAction[] = [{ type: "uncapShaker" }, { type: "strain" }, { type: "garnish", garnish: "lime-wedge" }];
 
 test("a perfect drink scores 100 and 5 stars with no mistakes", () => {
   const s = score([...shakeMargarita(), ...finish]);
@@ -50,6 +51,7 @@ test("wrong glass, no ice and shaking without ice are each named", () => {
     { type: "pour", into: "shaker", ingredient: "tequila", ml: oz(2) },
     { type: "pour", into: "shaker", ingredient: "triple-sec", ml: oz(1) },
     { type: "pour", into: "shaker", ingredient: "lime-juice", ml: oz(1) },
+    { type: "capShaker" },
     { type: "shake", ms: 10000 },
     ...finish,
   ]);
