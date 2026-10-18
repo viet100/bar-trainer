@@ -1,5 +1,5 @@
 import { isAssistantId, recallBrief, WEAKNESS_QUERY } from "@/game/memory";
-import { classicOrder, parseOrder } from "@/game/order";
+import { classicOrder, parseOrder, parseOrderRequest } from "@/game/order";
 import { backboardEnabled, recall } from "@/server/backboard";
 import { generateJson } from "@/server/gemini";
 import { buildOrderPrompt } from "@/server/orderPrompt";
@@ -14,15 +14,18 @@ const MINUTE = 60_000;
 
 const RECALL_LIMIT = 8;
 
+const REFUSAL =
+  "Sorry, I can't help with that. This endpoint only writes the next bar customer's order from { recent, assistantId }; it doesn't take prompts or questions.";
+
 // POST /api/order { recent?: string[], assistantId? } -> Order & { targeting?: string[] }
+// Any other body is refused with a 400 and never reaches Gemini.
 // Every Gemini order must pass parseOrder's safety checks. A rejected order is
 // regenerated once; if Gemini is unreachable or keeps failing the checks, the
 // customer orders off the classic menu so the game never stalls.
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => null);
-  const recent: string[] = Array.isArray(body?.recent)
-    ? body.recent.filter((n: unknown): n is string => typeof n === "string")
-    : [];
+  const body = parseOrderRequest(await request.json().catch(() => null));
+  if (!body) return Response.json({ error: REFUSAL }, { status: 400 });
+  const { recent } = body;
 
   // Over the limit, the customer still arrives, just off the free classic menu.
   const visitor = visitorOf(request);
@@ -32,7 +35,7 @@ export async function POST(request: Request) {
   }
 
   // The trainee's weak spots from Backboard memory steer the drink choice.
-  const weakSpots = await recallWeakSpots(body?.assistantId);
+  const weakSpots = await recallWeakSpots(body.assistantId);
 
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     let raw: unknown;
