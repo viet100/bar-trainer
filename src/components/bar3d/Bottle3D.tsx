@@ -44,23 +44,23 @@ function liquidOf(style: BottleStyle) {
   return g;
 }
 
-// Label card: big, high-contrast type on a cream card, up to two lines.
+// Label card: big, high-contrast type on a cream card (or other colors), up to two lines.
 const LABEL_PX: [number, number] = [256, 110];
 export const LABEL_SIZE: [number, number] = [0.052, (0.052 * LABEL_PX[1]) / LABEL_PX[0]];
 // The card floats up near the bottle's shoulders, a little in front of it toward the bartender.
 const labelOffset = (style: BottleStyle) => new Vector3(0, spoutHeight(style) * 0.74, 0.042);
 
-function labelTexture(name: string) {
+export function labelTexture(name: string, colors = { card: "#f6efe0", ink: "#16100b" }) {
   const [w, h] = LABEL_PX;
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
   const g = c.getContext("2d")!;
-  g.fillStyle = "#f6efe0";
+  g.fillStyle = colors.card;
   g.beginPath();
   g.roundRect(2, 2, w - 4, h - 4, 18);
   g.fill();
-  g.fillStyle = "#16100b";
+  g.fillStyle = colors.ink;
   g.textAlign = "center";
   g.textBaseline = "middle";
   const words = name.toUpperCase().split(" ");

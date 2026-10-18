@@ -3,12 +3,12 @@
 import { Canvas, events, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
 import { CuboidCollider, Physics, RigidBody } from "@react-three/rapier";
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Color, Plane, Raycaster, Vector2, Vector3, type Camera, type Group, type PerspectiveCamera } from "three";
+import { Color, Plane, Raycaster, Vector2, Vector3, type Camera, type Group, type Mesh, type PerspectiveCamera } from "three";
 import { ICE_CUBE_ML, capacityMl, liquidMl, type DrinkAction, type DrinkState, type Vessel as VesselState, type VesselId } from "@/game/drink";
-import { GLASS_IDS, type GlassId } from "@/game/glassware";
-import { INGREDIENTS, INGREDIENT_IDS, type GarnishId, type IngredientId } from "@/game/ingredients";
+import { GLASSES, GLASS_IDS, type GlassId } from "@/game/glassware";
+import { GARNISHES, INGREDIENTS, INGREDIENT_IDS, type GarnishId, type IngredientId } from "@/game/ingredients";
 import { SHAKE_OVER_S, SHAKE_READY_S, STIR_READY_S } from "@/game/score";
-import Bottle3D, { type HeldBottle } from "./Bottle3D";
+import Bottle3D, { LABEL_SIZE, labelTexture, type HeldBottle } from "./Bottle3D";
 import { BOTTLE_STYLES } from "./bottleStyles";
 import {
   BAR_TOP,
@@ -42,9 +42,9 @@ import {
   type XZ,
 } from "./layout";
 import PourStream from "./PourStream";
-import { BarSpoon, GarnishCaddy, GarnishModel, IceCube, IceCubes, IceWell, SpoonCup } from "./props";
+import { BarSpoon, GarnishCaddy, GarnishModel, IceCube, IceCubes, IceWell, SpoonCup, TinIce } from "./props";
 import { CAP_INSET, heightForFraction, rimHeight, SHAPES } from "./shapes";
-import Vessel, { VesselCollider, type ShapeId } from "./Vessel";
+import Vessel, { type ShapeId } from "./Vessel";
 
 const ICE_SCOOP = 3;
 const SHAKE_SPEED = 0.6; // px per ms of pointer movement that counts as shaking
@@ -108,6 +108,11 @@ const rimOf = (shape: ShapeId) => rimHeight(SHAPES[shape].inner);
 const rimRadius = (shape: ShapeId) => SHAPES[shape].inner[SHAPES[shape].inner.length - 1][0];
 // Base of the small tin when it sits upside down in the big one.
 const CAP_SEAT_Y = rimOf("tin") - CAP_INSET + rimOf("smallTin");
+// Heights up the tin, with a reach around it, where pointing counts as aiming ice into it.
+const TIN_AIM: [y: number, reach: number][] = [
+  [rimOf("tin"), DROP_RADIUS],
+  [rimOf("tin") / 2, rimRadius("tin") + 0.015],
+];
 
 export type MeterRefs = {
   root: RefObject<HTMLDivElement | null>;
@@ -209,7 +214,10 @@ function Scene(props: SceneProps) {
       pointerOnPlane(HIT, camera, gl.domElement, clientX, clientY, aimY);
       return clearHeight(HIT.z + offZ, baseY) + grabAbove - aimY; // > 0: aim higher
     };
+    const cursor = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
     const follow = (clientX: number, clientY: number) => {
+      cursor.x = clientX;
+      cursor.y = clientY;
       let aimY = planeY;
       if (climbs && settle(clientX, clientY, planeY) > 0) {
         let lo = planeY;
@@ -238,10 +246,18 @@ function Scene(props: SceneProps) {
       pouring: null,
     };
     const here = (): XZ => [held.current.x, held.current.z];
+    // Ice floats high above the tin, so pointing at the tin itself (its rim
+    // or partway down its side) counts as over it too, not only the spot
+    // straight under the carried ice.
+    const pointsAtTin = () =>
+      TIN_AIM.some(([y, r]) => {
+        pointerOnPlane(AIM, camera, gl.domElement, cursor.x, cursor.y, TIN[1] + y);
+        return distance([AIM.x, AIM.z], xz(TIN)) < r;
+      });
     const spotUnder = (): VesselId | "mat" | null => {
       const p = here();
       if (onMat(p)) return latest.current.drink.glass ? "glass" : "mat";
-      if (distance(p, xz(TIN)) < DROP_RADIUS) return "shaker";
+      if (distance(p, xz(TIN)) < DROP_RADIUS || (d.kind === "ice" && pointsAtTin())) return "shaker";
       return null;
     };
     const setOver = (spot: VesselId | "mat" | null) => {
@@ -537,14 +553,6 @@ function Scene(props: SceneProps) {
             />
           )}
           {glassShape && <IceCubes key={`g-${glassShape}`} count={drink.inGlass.ice} at={xz(MAT)} dropY={MAT[1] + rimOf(glassShape) + 0.04} />}
-
-          {/* While the tin is in your hand its ice is "inside" it; the cubes drop back in when you set it down. */}
-          {!tinHeld && (
-            <>
-              <VesselCollider shape="tin" position={TIN} />
-              <IceCubes key="t" count={drink.inShaker.ice} at={xz(TIN)} dropY={TIN[1] + rimOf("tin") + 0.04} />
-            </>
-          )}
         </Physics>
       </Suspense>
 
@@ -559,6 +567,7 @@ function Scene(props: SceneProps) {
             targetFill={targetFill.shaker}
             highlight={hover === "shaker" && !tinHeld}
           />
+          <TinIce count={drink.inShaker.ice} rimY={rimOf("tin")} />
         </group>
         {capped && drag?.kind !== "cap" && (
           <group
@@ -614,6 +623,19 @@ function Scene(props: SceneProps) {
           </group>
         );
       })}
+      {GLASS_IDS.map((id) => {
+        const [x, y, z] = glassHome(id);
+        return (
+          <NameCard
+            key={id}
+            name={GLASSES[id].name}
+            colors={GLASS_CARD}
+            position={[x, y + Math.min(rimOf(id) + 0.018, GLASS_CARD_MAX_Y), z + rimRadius(id) + 0.004]}
+            scale={1.1}
+            onGrab={(e) => grab({ kind: "glass", id }, e, glassHome(id))}
+          />
+        );
+      })}
       {drag?.kind === "glass" && (
         <Follow active home={glassHome(drag.id)} held={held}>
           <Vessel shape={drag.id} position={[0, 0, 0]} fill={0} liquidColor={null} />
@@ -632,6 +654,20 @@ function Scene(props: SceneProps) {
               <boxGeometry args={[0.04, 0.04, 0.045]} />
             </mesh>
           </group>
+        );
+      })}
+      {GARNISH_IDS.map((id) => {
+        const [x, , z] = garnishHome(id);
+        const side = x < GARNISH_TRAY[0] ? -1 : 1; // left column's cards sit left of the tray, right column's right
+        return (
+          <NameCard
+            key={id}
+            name={GARNISHES[id]}
+            colors={GARNISH_CARD}
+            position={[GARNISH_TRAY[0] + side * GARNISH_CARD_X, 0.03, z]}
+            scale={0.9}
+            onGrab={(e) => grab({ kind: "garnish", id }, e, garnishHome(id))}
+          />
         );
       })}
       {drag?.kind === "garnish" && (
@@ -749,6 +785,48 @@ function Station({ matLit }: { matLit: boolean }) {
         <meshStandardMaterial {...STEEL} />
       </mesh>
     </group>
+  );
+}
+
+// Name cards that face the camera, colored by kind so glassware and garnish
+// read apart from the cream bottle labels. Grabbing a card picks up its item.
+const GLASS_CARD = { card: "#1f2a30", ink: "#f2f5f7" };
+const GARNISH_CARD = { card: "#2f3d26", ink: "#f3f6ec" };
+// Glass cards float just above short glasses and in front of tall ones, low
+// enough that the back row stays clear of the hint text over the bar.
+const GLASS_CARD_MAX_Y = 0.11;
+const GARNISH_CARD_X = 0.065 + 0.006 + (LABEL_SIZE[0] * 0.9) / 2; // tray half-width, a gap, half a card
+function NameCard({
+  name,
+  colors,
+  position,
+  scale,
+  onGrab,
+}: {
+  name: string;
+  colors: { card: string; ink: string };
+  position: [number, number, number];
+  scale: number;
+  onGrab: (e: ThreeEvent<PointerEvent>) => void;
+}) {
+  const { camera } = useThree();
+  const ref = useRef<Mesh>(null);
+  const texture = useMemo(() => labelTexture(name, colors), [name, colors]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  useFrame(() => ref.current?.quaternion.copy(camera.quaternion));
+  return (
+    <mesh
+      ref={ref}
+      position={position}
+      scale={scale}
+      renderOrder={5}
+      onPointerDown={onGrab}
+      onPointerOver={() => (document.body.style.cursor = "grab")}
+      onPointerOut={() => (document.body.style.cursor = "")}
+    >
+      <planeGeometry args={LABEL_SIZE} />
+      <meshBasicMaterial map={texture} transparent toneMapped={false} />
+    </mesh>
   );
 }
 
