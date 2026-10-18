@@ -22,7 +22,6 @@ import { usePourController } from "@/hooks/usePourController";
 import { useTraineeMemory } from "@/hooks/useTraineeMemory";
 import { ML_PER_OZ, mlToOz } from "@/lib/pour";
 
-const STIR_STEP = 5;
 
 // WebGL only exists in the browser, so the 3D bar never renders on the server.
 const BarScene = dynamic(() => import("@/components/bar3d/BarScene"), {
@@ -242,7 +241,7 @@ export default function BarStation() {
               {/* Top of the bar area, clear of the speed rail labels: how to play, the glass's purpose, and tools */}
               <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-col gap-2">
                 <p className="text-center text-xs text-stone-400">
-                  Bring a bottle toward the glass or tin and it tips to pour · drag glasses, ice and garnish onto the glass · cap the big tin with the small one to shake, uncap it and drop it on the glass to strain
+                  Bring a bottle toward the glass or tin and it tips to pour · drag glasses, ice and garnish onto the glass · cap the big tin with the small one to shake, or circle the bar spoon in the open tin to stir · drop the open tin on the glass to strain
                 </p>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <p className="max-w-md text-xs text-stone-400">
@@ -255,7 +254,6 @@ export default function BarStation() {
                     )}
                   </p>
                   <div className="pointer-events-auto flex gap-1.5">
-                    <ToolButton onClick={() => dispatch({ type: "stir", turns: STIR_STEP })}>Stir tin +{STIR_STEP}</ToolButton>
                     <ToolButton onClick={() => dispatch({ type: "dump", vessel: "shaker" })}>Dump tin</ToolButton>
                     <ToolButton onClick={() => dispatch({ type: "dump", vessel: "glass" })}>Dump glass</ToolButton>
                   </div>

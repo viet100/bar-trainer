@@ -31,6 +31,7 @@ export const GARNISH_TRAY: Spot = [-0.37, 0, 0.0];
 export const TIN: Spot = [0.25, 0, -0.02]; // Boston shaker on the drainboard: the big tin...
 export const CAP_HOME: Spot = [0.35, 0, -0.04]; // ...and the small tin that caps it
 export const SINK: Spot = [0.37, 0, 0.09];
+export const SPOON_CUP: Spot = [0.43, 0, -0.08]; // the bar spoon stands in a cup right of the tins
 // Two-tier speed rail, like a busy well: liquor on the back rail, and a lower
 // rail in front for juices, syrups, cream and mixers.
 export type Rail = { z: number; baseY: number; categories: IngredientCategory[] };
@@ -44,7 +45,7 @@ export const xz = (s: Spot | readonly [number, number, number]): XZ => [s[0], s[
 
 // How high a held thing rises. Ice and garnish snap to the cursor and float
 // at CARRY_Y, above both counters, so they never sink into the bar top.
-export const LIFT = { bottle: 0.22, item: 0.04 };
+export const LIFT = { bottle: 0.22, item: 0.04, spoon: 0.16 }; // the spoon clears the tin's rim
 export const CARRY_Y = BAR_TOP + 0.06;
 
 // How close (in meters, across the counter) a drop on the tin has to land.

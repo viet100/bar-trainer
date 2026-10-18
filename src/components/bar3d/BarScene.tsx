@@ -27,6 +27,7 @@ import {
   POUR_AT,
   POUR_INNER,
   SINK,
+  SPOON_CUP,
   RAILS,
   TIN,
   VESSEL_SPOT,
@@ -41,7 +42,7 @@ import {
   type XZ,
 } from "./layout";
 import PourStream from "./PourStream";
-import { GarnishCaddy, GarnishModel, IceCube, IceCubes, IceWell } from "./props";
+import { BarSpoon, GarnishCaddy, GarnishModel, IceCube, IceCubes, IceWell, SpoonCup } from "./props";
 import { CAP_INSET, heightForFraction, rimHeight, SHAPES } from "./shapes";
 import Vessel, { VesselCollider, type ShapeId } from "./Vessel";
 
@@ -52,6 +53,9 @@ const POUR_HYSTERESIS = 0.08; // once pouring, it keeps going down to POUR_AT mi
 const FOLLOW_RATE = 22; // easing speed per second into poses and back home
 const HELD_RATE = 50; // easing speed per second while following the cursor: about two frames behind
 const STRAIN_TILT = 1.9; // radians the tin tips over the glass when straining
+const STIR_ZONE = 0.05; // the spoon drops into the tin when the cursor is this close to its mouth's center
+const SPOON_ORBIT = 0.022; // how far from the tin's center the spoon can circle
+const SPOON_HOME: [number, number, number] = [SPOON_CUP[0], SPOON_CUP[1] + 0.005, SPOON_CUP[2]];
 
 type Drag =
   | { kind: "bottle"; id: IngredientId }
@@ -59,7 +63,8 @@ type Drag =
   | { kind: "garnish"; id: GarnishId }
   | { kind: "ice" }
   | { kind: "tin" } // the big tin, with the small one riding along if capped
-  | { kind: "cap" }; // the small tin
+  | { kind: "cap" } // the small tin
+  | { kind: "spoon" };
 
 export type BarSceneProps = {
   drink: DrinkState;
@@ -167,6 +172,7 @@ function Scene(props: SceneProps) {
   const bottle = useRef<HeldBottle>({ base: new Vector3(), reach: 0, mouth: null, side: 1, spout: new Vector3() });
   const shake = useRef({ ms: 0, x: 0, y: 0, t: 0, wobble: 0, warned: false });
   const tinPose = useRef<HeldPose>({ on: false, pos: new Vector3(), rot: 0 });
+  const spoonPose = useRef<HeldPose>({ on: false, pos: new Vector3(), rot: 0 });
 
   // Picks something up so the exact point you clicked stays under the cursor:
   // the drag plane runs through that point (raised by the lift), and the
@@ -178,17 +184,17 @@ function Scene(props: SceneProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     const magnet = d.kind === "ice" || d.kind === "garnish";
-    const lift = d.kind === "bottle" ? LIFT.bottle : magnet ? 0 : LIFT.item;
+    const lift = d.kind === "bottle" ? LIFT.bottle : d.kind === "spoon" ? LIFT.spoon : magnet ? 0 : LIFT.item;
     const planeY = magnet ? CARRY_Y : e.point.y + lift;
     const baseY = magnet ? CARRY_Y : origin[1] + lift;
     const offX = magnet ? 0 : origin[0] - e.point.x;
     const offZ = magnet ? 0 : origin[2] - e.point.z;
-    // The tins are carried low, so they climb over the bar top's edge. As one
+    // The tins and spoon are carried low, so they climb over the bar top's edge. As one
     // rises, the grabbed point must rise with it to stay under the cursor. The
     // height that does that is where the cursor's ray meets the climb, found
     // by bisection: aiming higher only ever lands closer to the bartender,
     // where the climb is lower, so there's exactly one answer.
-    const climbs = d.kind === "tin" || d.kind === "cap";
+    const climbs = d.kind === "tin" || d.kind === "cap" || d.kind === "spoon";
     const grabAbove = planeY - baseY; // how far the grabbed point sits above the object's origin
     const settle = (clientX: number, clientY: number, aimY: number) => {
       pointerOnPlane(HIT, camera, gl.domElement, clientX, clientY, aimY);
@@ -284,10 +290,51 @@ function Scene(props: SceneProps) {
     };
     if (d.kind === "bottle") aimBottle(d.id, e.nativeEvent.clientX, e.nativeEvent.clientY);
 
+    // Spoon: point at the open tin's mouth and the spoon drops in; circle the
+    // cursor around the tin's center to stir. Every full turn in one direction
+    // counts as a stir; going back and forth doesn't.
+    const stir = { last: null as number | null, swept: 0, warned: false };
+    const stirSpoon = (clientX: number, clientY: number) => {
+      const { drink: dk, onAction, onNudge } = latest.current;
+      pointerOnPlane(AIM, camera, gl.domElement, clientX, clientY, TIN[1] + rimOf("tin"));
+      const dx = AIM.x - TIN[0];
+      const dz = AIM.z - TIN[2];
+      const r = Math.hypot(dx, dz);
+      const inTin = r < STIR_ZONE;
+      const pose = spoonPose.current;
+      pose.on = inTin && !dk.shakerCapped;
+      setOver(inTin ? "shaker" : null);
+      if (!inTin) {
+        stir.last = null;
+        return;
+      }
+      if (dk.shakerCapped || liquidMl(dk.inShaker) === 0) {
+        if (!stir.warned) onNudge(dk.shakerCapped ? "Take the small tin off to stir" : "Pour the drink into the tin, then stir");
+        stir.warned = true;
+        return;
+      }
+      const k = Math.min(r, SPOON_ORBIT) / Math.max(r, 1e-6);
+      pose.pos.set(TIN[0] + dx * k, TIN[1] + 0.01, TIN[2] + dz * k);
+      if (r < 0.006) return; // too near the center to tell which way it's going
+      const a = Math.atan2(dz, dx);
+      if (stir.last !== null) {
+        stir.swept += Math.atan2(Math.sin(a - stir.last), Math.cos(a - stir.last)); // shortest signed step
+        if (Math.abs(stir.swept) >= 2 * Math.PI) {
+          stir.swept -= Math.sign(stir.swept) * 2 * Math.PI;
+          onAction({ type: "stir", turns: 1 });
+        }
+      }
+      stir.last = a;
+    };
+
     const move = (ev: PointerEvent) => {
       follow(ev.clientX, ev.clientY);
       if (d.kind === "bottle") {
         aimBottle(d.id, ev.clientX, ev.clientY);
+        return;
+      }
+      if (d.kind === "spoon") {
+        stirSpoon(ev.clientX, ev.clientY);
         return;
       }
       const spot = spotUnder();
@@ -361,6 +408,7 @@ function Scene(props: SceneProps) {
           break;
       }
       tinPose.current.on = false;
+      spoonPose.current.on = false;
       document.body.style.cursor = "";
       setHover(null);
       setDrag(null);
@@ -514,6 +562,14 @@ function Scene(props: SceneProps) {
           {smallTin}
         </Follow>
       )}
+
+      {/* Bar spoon, standing in its cup until you pick it up to stir */}
+      <SpoonCup at={SPOON_CUP} />
+      <Follow active={drag?.kind === "spoon"} home={SPOON_HOME} held={held} pose={spoonPose}>
+        <group {...grabCursor} onPointerDown={(e) => grab({ kind: "spoon" }, e, SPOON_HOME)}>
+          <BarSpoon />
+        </group>
+      </Follow>
 
       <PourStream pouring={!!pouringId && !!pouringInto} color={pouringId && colorOf(pouringId)} spout={bottle} surfaceY={surfaceY} />
 
