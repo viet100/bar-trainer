@@ -6,7 +6,7 @@ type LiveReadoutProps = {
   glassCapacityOz: number;
   shakerOz: number;
   shakeSeconds: number;
-  stirTurns: number;
+  stirSeconds: number;
   capped: boolean;
   spilledOz: number;
 };
@@ -28,7 +28,7 @@ export default function LiveReadout(p: LiveReadoutProps) {
         <dd>{p.glassCapacityOz > 0 ? `${f(p.glassOz)} / ${f(p.glassCapacityOz)} oz` : "none picked"}</dd>
         <dt>Tin</dt>
         <dd>
-          {f(p.shakerOz)} oz{p.capped && " · capped"} · {p.shakeSeconds.toFixed(1)}s shaken · {p.stirTurns} stirs
+          {f(p.shakerOz)} oz{p.capped && " · capped"} · {p.shakeSeconds.toFixed(1)}s shaken · {p.stirSeconds.toFixed(1)}s stirred
         </dd>
         {p.spilledOz > 0 && (
           <>

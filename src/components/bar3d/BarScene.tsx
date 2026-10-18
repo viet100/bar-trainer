@@ -7,7 +7,7 @@ import { Color, Plane, Raycaster, Vector2, Vector3, type Camera, type Group, typ
 import { ICE_CUBE_ML, capacityMl, liquidMl, type DrinkAction, type DrinkState, type Vessel as VesselState, type VesselId } from "@/game/drink";
 import { GLASS_IDS, type GlassId } from "@/game/glassware";
 import { INGREDIENTS, INGREDIENT_IDS, type GarnishId, type IngredientId } from "@/game/ingredients";
-import { SHAKE_OVER_S, SHAKE_READY_S } from "@/game/score";
+import { SHAKE_OVER_S, SHAKE_READY_S, STIR_READY_S } from "@/game/score";
 import Bottle3D, { type HeldBottle } from "./Bottle3D";
 import { BOTTLE_STYLES } from "./bottleStyles";
 import {
@@ -48,6 +48,7 @@ import Vessel, { VesselCollider, type ShapeId } from "./Vessel";
 
 const ICE_SCOOP = 3;
 const SHAKE_SPEED = 0.6; // px per ms of pointer movement that counts as shaking
+const STIR_SPEED = 0.003; // radians per ms around the tin that count as stirring: about half a turn a second
 const AIM_SETTLE_MS = 150; // a bottle must hover this long before it pours
 const POUR_HYSTERESIS = 0.08; // once pouring, it keeps going down to POUR_AT minus this
 const FOLLOW_RATE = 22; // easing speed per second into poses and back home
@@ -108,24 +109,31 @@ const rimRadius = (shape: ShapeId) => SHAPES[shape].inner[SHAPES[shape].inner.le
 // Base of the small tin when it sits upside down in the big one.
 const CAP_SEAT_Y = rimOf("tin") - CAP_INSET + rimOf("smallTin");
 
-export type ShakeMeterRefs = {
+export type MeterRefs = {
   root: RefObject<HTMLDivElement | null>;
   fill: RefObject<HTMLDivElement | null>;
   label: RefObject<HTMLSpanElement | null>;
+  tick: RefObject<HTMLDivElement | null>;
 };
 
-// The bar spans 0 to "over" with a tick at "ready"; both come from the scoring
-// rules, so the meter and the grade always agree.
+// The shake bar spans 0 to "over" with a tick at "ready"; the stir bar fills
+// at "ready". Both come from the scoring rules, so the meter and the grade
+// always agree.
 const SHAKE_STATES = [
   { below: SHAKE_READY_S, word: "Keep shaking", color: "#fcd34d" },
   { below: SHAKE_OVER_S, word: "Ready to strain", color: "#34d399" },
   { below: Infinity, word: "Over-diluted", color: "#f87171" },
+];
+const STIR_STATES = [
+  { below: STIR_READY_S, word: "Keep stirring", color: "#fcd34d" },
+  { below: Infinity, word: "Ready to strain", color: "#34d399" },
 ];
 
 export default function BarScene(props: BarSceneProps) {
   const meterRoot = useRef<HTMLDivElement>(null);
   const meterFill = useRef<HTMLDivElement>(null);
   const meterLabel = useRef<HTMLSpanElement>(null);
+  const meterTick = useRef<HTMLDivElement>(null);
   return (
     <div className="relative h-full w-full touch-none select-none">
       <Canvas
@@ -136,16 +144,16 @@ export default function BarScene(props: BarSceneProps) {
       >
         <color attach="background" args={["#140e0a"]} />
         <FitCamera />
-        <Scene {...props} meter={{ root: meterRoot, fill: meterFill, label: meterLabel }} />
+        <Scene {...props} meter={{ root: meterRoot, fill: meterFill, label: meterLabel, tick: meterTick }} />
       </Canvas>
-      {/* Shake meter, pinned beside the shaker by the scene every frame */}
+      {/* Shake or stir meter, pinned beside the shaker by the scene every frame */}
       <div ref={meterRoot} className="pointer-events-none absolute left-0 top-0 hidden">
         <div className="w-28 -translate-y-1/2 rounded-lg bg-stone-950/80 px-2 py-1.5 shadow-lg shadow-black/50">
           <span ref={meterLabel} className="block text-[11px] font-semibold text-white" />
           <div className="relative mt-1 h-2 overflow-hidden rounded-full bg-white/15">
             <div ref={meterFill} className="h-full w-0 rounded-full" />
             {/* "ready" tick */}
-            <div className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${(SHAKE_READY_S / SHAKE_OVER_S) * 100}%` }} />
+            <div ref={meterTick} className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${(SHAKE_READY_S / SHAKE_OVER_S) * 100}%` }} />
           </div>
         </div>
       </div>
@@ -154,7 +162,7 @@ export default function BarScene(props: BarSceneProps) {
   );
 }
 
-type SceneProps = BarSceneProps & { meter: ShakeMeterRefs };
+type SceneProps = BarSceneProps & { meter: MeterRefs };
 
 function Scene(props: SceneProps) {
   const { drink, pouringId, pouringInto, targetFill } = props;
@@ -171,6 +179,7 @@ function Scene(props: SceneProps) {
   const held = useRef(new Vector3()); // where the held thing's origin goes
   const bottle = useRef<HeldBottle>({ base: new Vector3(), reach: 0, mouth: null, side: 1, spout: new Vector3() });
   const shake = useRef({ ms: 0, x: 0, y: 0, t: 0, wobble: 0, warned: false });
+  const stir = useRef({ ms: 0, last: null as number | null, dir: 0, t: 0, warned: false });
   const tinPose = useRef<HeldPose>({ on: false, pos: new Vector3(), rot: 0 });
   const spoonPose = useRef<HeldPose>({ on: false, pos: new Vector3(), rot: 0 });
 
@@ -218,6 +227,7 @@ function Scene(props: SceneProps) {
     follow(e.nativeEvent.clientX, e.nativeEvent.clientY);
 
     shake.current = { ms: 0, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY, t: e.nativeEvent.timeStamp, wobble: 0, warned: false };
+    stir.current = { ms: 0, last: null, dir: 0, t: 0, warned: false };
     if (d.kind === "cap" && latest.current.drink.shakerCapped) latest.current.onAction({ type: "uncapShaker" });
     document.body.style.cursor = "grabbing";
     setDrag(d);
@@ -291,11 +301,11 @@ function Scene(props: SceneProps) {
     if (d.kind === "bottle") aimBottle(d.id, e.nativeEvent.clientX, e.nativeEvent.clientY);
 
     // Spoon: point at the open tin's mouth and the spoon drops in; circle the
-    // cursor around the tin's center to stir. Every full turn in one direction
-    // counts as a stir; going back and forth doesn't.
-    const stir = { last: null as number | null, swept: 0, warned: false };
-    const stirSpoon = (clientX: number, clientY: number) => {
-      const { drink: dk, onAction, onNudge } = latest.current;
+    // cursor around the tin's center to stir. Only steady circling in one
+    // direction counts toward the stir time; wiggling back and forth doesn't.
+    const stirSpoon = (clientX: number, clientY: number, time: number) => {
+      const st = stir.current;
+      const { drink: dk, onNudge } = latest.current;
       pointerOnPlane(AIM, camera, gl.domElement, clientX, clientY, TIN[1] + rimOf("tin"));
       const dx = AIM.x - TIN[0];
       const dz = AIM.z - TIN[2];
@@ -305,26 +315,27 @@ function Scene(props: SceneProps) {
       pose.on = inTin && !dk.shakerCapped;
       setOver(inTin ? "shaker" : null);
       if (!inTin) {
-        stir.last = null;
+        st.last = null;
         return;
       }
       if (dk.shakerCapped || liquidMl(dk.inShaker) === 0) {
-        if (!stir.warned) onNudge(dk.shakerCapped ? "Take the small tin off to stir" : "Pour the drink into the tin, then stir");
-        stir.warned = true;
+        if (!st.warned) onNudge(dk.shakerCapped ? "Take the small tin off to stir" : "Pour the drink into the tin, then stir");
+        st.warned = true;
         return;
       }
       const k = Math.min(r, SPOON_ORBIT) / Math.max(r, 1e-6);
       pose.pos.set(TIN[0] + dx * k, TIN[1] + 0.01, TIN[2] + dz * k);
       if (r < 0.006) return; // too near the center to tell which way it's going
       const a = Math.atan2(dz, dx);
-      if (stir.last !== null) {
-        stir.swept += Math.atan2(Math.sin(a - stir.last), Math.cos(a - stir.last)); // shortest signed step
-        if (Math.abs(stir.swept) >= 2 * Math.PI) {
-          stir.swept -= Math.sign(stir.swept) * 2 * Math.PI;
-          onAction({ type: "stir", turns: 1 });
-        }
+      if (st.last !== null) {
+        const da = Math.atan2(Math.sin(a - st.last), Math.cos(a - st.last)); // shortest signed step
+        const dt = time - st.t;
+        const dir = Math.sign(da);
+        if (dt > 0 && dt < 100 && Math.abs(da) / dt > STIR_SPEED && dir === st.dir) st.ms += dt;
+        if (dir !== 0) st.dir = dir;
       }
-      stir.last = a;
+      st.last = a;
+      st.t = time;
     };
 
     const move = (ev: PointerEvent) => {
@@ -334,7 +345,7 @@ function Scene(props: SceneProps) {
         return;
       }
       if (d.kind === "spoon") {
-        stirSpoon(ev.clientX, ev.clientY);
+        stirSpoon(ev.clientX, ev.clientY, ev.timeStamp);
         return;
       }
       const spot = spotUnder();
@@ -406,6 +417,9 @@ function Scene(props: SceneProps) {
         case "cap":
           if (distance(here(), xz(TIN)) < DROP_RADIUS) onAction({ type: "capShaker" });
           break;
+        case "spoon":
+          if (stir.current.ms > 0) onAction({ type: "stir", ms: stir.current.ms });
+          break;
       }
       tinPose.current.on = false;
       spoonPose.current.on = false;
@@ -424,27 +438,32 @@ function Scene(props: SceneProps) {
     window.addEventListener("blur", drop);
   };
 
-  // Shake meter: total shake time (recorded + this grab, if capped). It stays
-  // put beside the tin's spot on the drainboard, so it's readable while you shake.
+  // Shake meter while the tin is capped, stir meter while it's open: total
+  // time (recorded + this grab). It stays put beside the tin's spot on the
+  // drainboard, so it's readable while you shake or stir.
   useFrame(() => {
-    const { root, fill, label } = latest.current.meter;
-    if (!root.current || !fill.current || !label.current) return;
-    const holding = drag?.kind === "tin";
+    const { root, fill, label, tick } = latest.current.meter;
+    if (!root.current || !fill.current || !label.current || !tick.current) return;
     const capped = drink.shakerCapped;
-    const ms = drink.shakerMix.shakeMs + (holding && capped ? shake.current.ms : 0);
-    const show = capped && (holding || ms > 0);
-    root.current.style.display = show ? "block" : "none";
-    if (!show) return;
+    const mix = drink.shakerMix;
+    const stirring = !capped && (drag?.kind === "spoon" || mix.stirMs > 0);
+    const shaking = capped && (drag?.kind === "tin" || mix.shakeMs > 0);
+    root.current.style.display = stirring || shaking ? "block" : "none";
+    if (!stirring && !shaking) return;
 
     const screen = SCRATCH.set(TIN[0] + 0.09, TIN[1] + rimOf("tin") + 0.03, TIN[2]).project(camera);
     const rect = gl.domElement.getBoundingClientRect();
     root.current.style.transform = `translate(${((screen.x + 1) / 2) * rect.width}px, ${((1 - screen.y) / 2) * rect.height}px)`;
 
+    const ms = stirring
+      ? mix.stirMs + (drag?.kind === "spoon" ? stir.current.ms : 0)
+      : mix.shakeMs + (drag?.kind === "tin" ? shake.current.ms : 0);
     const secs = ms / 1000;
-    const state = SHAKE_STATES.find((st) => secs < st.below)!;
-    fill.current.style.width = `${Math.min(1, secs / SHAKE_OVER_S) * 100}%`;
+    const state = (stirring ? STIR_STATES : SHAKE_STATES).find((st) => secs < st.below)!;
+    fill.current.style.width = `${Math.min(1, secs / (stirring ? STIR_READY_S : SHAKE_OVER_S)) * 100}%`;
     fill.current.style.background = state.color;
     label.current.textContent = state.word;
+    tick.current.style.display = stirring ? "none" : "block";
   });
 
   // Pin the pour gauge beside the vessel being poured into.

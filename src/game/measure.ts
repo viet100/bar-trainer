@@ -22,7 +22,7 @@ export type Measurement = {
     expected: Technique;
     actual: ActualTechnique;
     shakeSeconds: number;
-    stirTurns: number;
+    stirSeconds: number;
     mixedWithIce: boolean;
   };
   ice: { expected: boolean; actual: number }; // actual = cubes in the glass
@@ -37,9 +37,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 function actualTechnique(drink: DrinkState): ActualTechnique {
   const mix = drink.strainedMix;
   if (!mix) return "build";
-  if (mix.shakeMs > 0 && mix.stirTurns > 0) return "shake+stir";
+  if (mix.shakeMs > 0 && mix.stirMs > 0) return "shake+stir";
   if (mix.shakeMs > 0) return "shake";
-  if (mix.stirTurns > 0) return "stir";
+  if (mix.stirMs > 0) return "stir";
   return "strained unmixed";
 }
 
@@ -66,7 +66,7 @@ export function measureDrink(drink: DrinkState, recipe: Recipe): Measurement {
       expected: recipe.technique,
       actual: actualTechnique(drink),
       shakeSeconds: round2((mix?.shakeMs ?? 0) / 1000),
-      stirTurns: mix?.stirTurns ?? 0,
+      stirSeconds: round2((mix?.stirMs ?? 0) / 1000),
       mixedWithIce: mix?.withIce ?? false,
     },
     ice: { expected: recipe.ice, actual: drink.inGlass.ice },

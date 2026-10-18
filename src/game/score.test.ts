@@ -4,7 +4,7 @@ import { ML_PER_OZ } from "../lib/pour.ts";
 import { INITIAL_DRINK, drinkReducer, type DrinkAction } from "./drink.ts";
 import { measureDrink } from "./measure.ts";
 import { CLASSIC_RECIPES } from "./recipes.ts";
-import { scoreDrink, SHAKE_OVER_S, SHAKE_READY_S, starsFor } from "./score.ts";
+import { scoreDrink, SHAKE_OVER_S, SHAKE_READY_S, STIR_READY_S, starsFor } from "./score.ts";
 
 const oz = (n: number) => n * ML_PER_OZ;
 const margarita = CLASSIC_RECIPES.find((r) => r.name === "Margarita")!;
@@ -80,4 +80,29 @@ test("a shake counts once it reaches ready, and costs half the technique points 
   const long = shakeFor((SHAKE_OVER_S + 2) * 1000);
   assert.equal(long.points, 93);
   assert.match(long.mistakes[0], /watered down/);
+});
+
+test("a stir counts once it reaches ready, and costs half the technique points if too short", () => {
+  const negroni = CLASSIC_RECIPES.find((r) => r.name === "Negroni")!;
+  const stirFor = (ms: number) =>
+    scoreDrink(
+      measureDrink(
+        ([
+          { type: "selectGlass", glass: "rocks" },
+          { type: "addIce", into: "glass", cubes: 3 },
+          { type: "pour", into: "shaker", ingredient: "gin", ml: oz(1) },
+          { type: "pour", into: "shaker", ingredient: "campari", ml: oz(1) },
+          { type: "pour", into: "shaker", ingredient: "sweet-vermouth", ml: oz(1) },
+          { type: "addIce", into: "shaker", cubes: 6 },
+          { type: "stir", ms },
+          { type: "strain" },
+          { type: "garnish", garnish: "orange-peel" },
+        ] as DrinkAction[]).reduce(drinkReducer, INITIAL_DRINK),
+        negroni,
+      ),
+    );
+  assert.equal(stirFor(STIR_READY_S * 1000).points, 100);
+  const short = stirFor(500);
+  assert.equal(short.points, 93);
+  assert.match(short.mistakes[0], /Stirred for only 0\.5 s/);
 });

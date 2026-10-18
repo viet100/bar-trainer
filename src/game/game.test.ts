@@ -71,7 +71,7 @@ test("straining moves liquid to the glass and leaves the ice in the tin", () => 
   assert.equal(s.inShaker.ice, 0);
   assert.equal(s.inGlass.ice, 4);
   assert.ok(Math.abs(liquidMl(s.inGlass) - oz(4)) < 1e-9);
-  assert.deepEqual(s.strainedMix, { shakeMs: 12000, stirTurns: 0, withIce: true });
+  assert.deepEqual(s.strainedMix, { shakeMs: 12000, stirMs: 0, withIce: true });
 });
 
 test("Boston shaker: shake only capped; pour, ice, stir and strain only open", () => {
@@ -83,7 +83,7 @@ test("Boston shaker: shake only capped; pour, ice, stir and strain only open", (
 
   const capped = run([{ type: "capShaker" }], filled);
   assert.equal(run([{ type: "shake", ms: 5000 }], capped).shakerMix.shakeMs, 5000);
-  assert.equal(run([{ type: "stir", turns: 10 }], capped).shakerMix.stirTurns, 0, "can't stir through the cap");
+  assert.equal(run([{ type: "stir", ms: 3000 }], capped).shakerMix.stirMs, 0, "can't stir through the cap");
   assert.equal(run([{ type: "addIce", into: "shaker", cubes: 2 }], capped).inShaker.ice, 4);
   const poured = run([{ type: "pour", into: "shaker", ingredient: "gin", ml: 30 }], capped);
   assert.equal(liquidMl(poured.inShaker), liquidMl(capped.inShaker));
@@ -114,7 +114,7 @@ test("over-pours, extras and misses show up as signed errors", () => {
     { type: "selectGlass", glass: "coupe" },
     { type: "pour", into: "shaker", ingredient: "white-rum", ml: oz(2.3) },
     { type: "pour", into: "shaker", ingredient: "lemon-juice", ml: oz(1) },
-    { type: "stir", turns: 20 },
+    { type: "stir", ms: 3000 },
     { type: "strain" },
   ]);
   const m = measureDrink(s, recipe("Daiquiri"));

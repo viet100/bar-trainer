@@ -13,7 +13,7 @@ const measurement = (tequilaErr = 0): Measurement => ({
     { id: "lime-juice", expectedOz: 1, actualOz: 1, errorOz: 0 },
     { id: "soda-water", expectedOz: 0, actualOz: 1, errorOz: 1 }, // an extra: not a pour habit
   ],
-  technique: { expected: "shake", actual: "shake", shakeSeconds: 10, stirTurns: 0, mixedWithIce: true },
+  technique: { expected: "shake", actual: "shake", shakeSeconds: 10, stirSeconds: 0, mixedWithIce: true },
   ice: { expected: true, actual: 3 },
   garnish: { expected: null, actual: null },
   totalErrorOz: Math.abs(tequilaErr) + 1,

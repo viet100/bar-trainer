@@ -46,7 +46,7 @@ export function parseMeasurement(raw: unknown, recipe: Recipe): Measurement | nu
   const actualGarnish = garnish.actual === null ? null : has(GARNISHES, garnish.actual) ? (garnish.actual as GarnishId) : undefined;
   if (actualGlass === undefined || actualGarnish === undefined) return null;
   if (!ACTUAL_TECHNIQUES.includes(t.actual as ActualTechnique)) return null;
-  if (!num(t.shakeSeconds, 3600) || !num(t.stirTurns, 10_000) || typeof t.mixedWithIce !== "boolean") return null;
+  if (!num(t.shakeSeconds, 3600) || !num(t.stirSeconds, 3600) || typeof t.mixedWithIce !== "boolean") return null;
   if (!num(ice.actual, 100) || !num(raw.spilledOz) || !num(raw.leftInShakerOz)) return null;
 
   return {
@@ -57,7 +57,7 @@ export function parseMeasurement(raw: unknown, recipe: Recipe): Measurement | nu
       expected: recipe.technique,
       actual: t.actual as ActualTechnique,
       shakeSeconds: t.shakeSeconds,
-      stirTurns: t.stirTurns,
+      stirSeconds: t.stirSeconds,
       mixedWithIce: t.mixedWithIce,
     },
     ice: { expected: recipe.ice, actual: ice.actual },

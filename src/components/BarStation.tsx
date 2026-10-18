@@ -321,7 +321,7 @@ export default function BarStation() {
                   glassCapacityOz={mlToOz(capacityMl(drink, "glass"))}
                   shakerOz={mlToOz(liquidMl(drink.inShaker))}
                   shakeSeconds={drink.shakerMix.shakeMs / 1000}
-                  stirTurns={drink.shakerMix.stirTurns}
+                  stirSeconds={drink.shakerMix.stirMs / 1000}
                   capped={drink.shakerCapped}
                   spilledOz={mlToOz(drink.spilledMl)}
                 />
