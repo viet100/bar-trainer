@@ -17,7 +17,9 @@ const perfectMargarita: DrinkAction[] = [
   { type: "pour", into: "shaker", ingredient: "triple-sec", ml: oz(1) },
   { type: "pour", into: "shaker", ingredient: "lime-juice", ml: oz(1) },
   { type: "addIce", into: "shaker", cubes: 6 },
+  { type: "capShaker" },
   { type: "shake", ms: 12000 },
+  { type: "uncapShaker" },
   { type: "strain" },
   { type: "garnish", garnish: "lime-wedge" },
 ];
@@ -72,8 +74,28 @@ test("straining moves liquid to the glass and leaves the ice in the tin", () => 
   assert.deepEqual(s.strainedMix, { shakeMs: 12000, stirTurns: 0, withIce: true });
 });
 
+test("Boston shaker: shake only capped; pour, ice, stir and strain only open", () => {
+  const filled = run([
+    { type: "pour", into: "shaker", ingredient: "gin", ml: oz(2) },
+    { type: "addIce", into: "shaker", cubes: 4 },
+  ]);
+  assert.equal(run([{ type: "shake", ms: 5000 }], filled).shakerMix.shakeMs, 0, "open tin can't be shaken");
+
+  const capped = run([{ type: "capShaker" }], filled);
+  assert.equal(run([{ type: "shake", ms: 5000 }], capped).shakerMix.shakeMs, 5000);
+  assert.equal(run([{ type: "stir", turns: 10 }], capped).shakerMix.stirTurns, 0, "can't stir through the cap");
+  assert.equal(run([{ type: "addIce", into: "shaker", cubes: 2 }], capped).inShaker.ice, 4);
+  const poured = run([{ type: "pour", into: "shaker", ingredient: "gin", ml: 30 }], capped);
+  assert.equal(liquidMl(poured.inShaker), liquidMl(capped.inShaker));
+  assert.equal(poured.spilledMl, 30);
+  const strained = run([{ type: "selectGlass", glass: "martini" }, { type: "strain" }], capped);
+  assert.equal(liquidMl(strained.inGlass), 0, "can't strain through the cap");
+
+  assert.equal(run([{ type: "dump", vessel: "shaker" }], capped).shakerCapped, false);
+});
+
 test("shaking an empty tin does nothing", () => {
-  assert.equal(run([{ type: "shake", ms: 5000 }]), INITIAL_DRINK);
+  assert.equal(run([{ type: "capShaker" }, { type: "shake", ms: 5000 }]).shakerMix.shakeMs, 0);
 });
 
 test("a perfect margarita measures with zero error", () => {

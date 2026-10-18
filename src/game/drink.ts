@@ -19,6 +19,9 @@ export type DrinkState = {
   strainedMix: Mix | null; // what was strained into the glass, if anything
   garnish: GarnishId | null;
   spilledMl: number;
+  // Boston shaker: the small tin sits upside down in the big one. You can only
+  // shake it capped, and only pour in, add ice, stir or strain with it open.
+  shakerCapped: boolean;
 };
 
 export type DrinkAction =
@@ -30,6 +33,8 @@ export type DrinkAction =
   | { type: "strain" }
   | { type: "garnish"; garnish: GarnishId }
   | { type: "dump"; vessel: VesselId }
+  | { type: "capShaker" }
+  | { type: "uncapShaker" }
   | { type: "reset" };
 
 // Volume one standard 1" cube displaces.
@@ -46,6 +51,7 @@ export const INITIAL_DRINK: DrinkState = {
   strainedMix: null,
   garnish: null,
   spilledMl: 0,
+  shakerCapped: false,
 };
 
 export const liquidMl = (v: Vessel) =>
@@ -79,6 +85,9 @@ export function drinkReducer(state: DrinkState, action: DrinkAction): DrinkState
 
     case "pour": {
       if (action.ml <= 0) return state;
+      if (action.into === "shaker" && state.shakerCapped) {
+        return { ...state, spilledMl: state.spilledMl + action.ml }; // runs off the capped tin
+      }
       const key = vesselKey(action.into);
       const { vessel, spilled } = fill(
         state[key],
@@ -89,6 +98,7 @@ export function drinkReducer(state: DrinkState, action: DrinkAction): DrinkState
     }
 
     case "addIce": {
+      if (action.into === "shaker" && state.shakerCapped) return state;
       const key = vesselKey(action.into);
       const v = state[key];
       const fits = Math.floor(roomMl(v, capacityMl(state, action.into)) / ICE_CUBE_ML);
@@ -99,6 +109,7 @@ export function drinkReducer(state: DrinkState, action: DrinkAction): DrinkState
     case "shake":
     case "stir": {
       if (liquidMl(state.inShaker) === 0) return state;
+      if ((action.type === "shake") !== state.shakerCapped) return state; // shake capped, stir open
       const mix = state.shakerMix;
       return {
         ...state,
@@ -112,7 +123,7 @@ export function drinkReducer(state: DrinkState, action: DrinkAction): DrinkState
 
     case "strain": {
       // Ice stays behind in the tin; only liquid passes the strainer.
-      if (liquidMl(state.inShaker) === 0) return state;
+      if (liquidMl(state.inShaker) === 0 || state.shakerCapped) return state;
       const { vessel, spilled } = fill(state.inGlass, state.inShaker.contents, capacityMl(state, "glass"));
       const prev = state.strainedMix;
       const mix = state.shakerMix;
@@ -138,7 +149,11 @@ export function drinkReducer(state: DrinkState, action: DrinkAction): DrinkState
     case "dump":
       return action.vessel === "glass"
         ? { ...state, inGlass: EMPTY_VESSEL, strainedMix: null, garnish: null }
-        : { ...state, inShaker: EMPTY_VESSEL, shakerMix: NO_MIX };
+        : { ...state, inShaker: EMPTY_VESSEL, shakerMix: NO_MIX, shakerCapped: false };
+
+    case "capShaker":
+    case "uncapShaker":
+      return { ...state, shakerCapped: action.type === "capShaker" };
 
     case "reset":
       return INITIAL_DRINK;
