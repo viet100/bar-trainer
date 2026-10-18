@@ -212,3 +212,46 @@ export function GarnishCaddy({ at, cups }: { at: Spot; cups: Spot[] }) {
     </group>
   );
 }
+
+export const SPOON_LENGTH = 0.2;
+const SPOON_STEEL = { color: "#c3c7cc", metalness: 0.7, roughness: 0.25 } as const;
+
+// A bar spoon, drawn from its bowl at the origin up its long thin shaft. The
+// invisible sleeve makes the thin shaft easy to grab.
+export function BarSpoon() {
+  return (
+    <group>
+      <mesh position={[0, 0.006, 0]} scale={[1, 0.4, 1.5]} castShadow>
+        <sphereGeometry args={[0.008, 12, 8]} />
+        <meshStandardMaterial {...SPOON_STEEL} />
+      </mesh>
+      <mesh position={[0, SPOON_LENGTH / 2 + 0.006, 0]} castShadow>
+        <cylinderGeometry args={[0.003, 0.003, SPOON_LENGTH, 8]} />
+        <meshStandardMaterial {...SPOON_STEEL} />
+      </mesh>
+      <mesh position={[0, SPOON_LENGTH + 0.008, 0]} castShadow>
+        <sphereGeometry args={[0.005, 10, 8]} />
+        <meshStandardMaterial {...SPOON_STEEL} />
+      </mesh>
+      <mesh position={[0, SPOON_LENGTH / 2, 0]} visible={false}>
+        <cylinderGeometry args={[0.014, 0.014, SPOON_LENGTH, 6]} />
+      </mesh>
+    </group>
+  );
+}
+
+// The open steel cup the bar spoon stands in between drinks.
+export function SpoonCup({ at }: { at: Spot }) {
+  return (
+    <group position={at}>
+      <mesh position={[0, 0.035, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.02, 0.017, 0.07, 18, 1, true]} />
+        <meshStandardMaterial color="#b7bcc1" metalness={0.6} roughness={0.35} side={DoubleSide} />
+      </mesh>
+      <mesh position={[0, 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.017, 18]} />
+        <meshStandardMaterial color="#6b7178" metalness={0.55} roughness={0.45} />
+      </mesh>
+    </group>
+  );
+}
