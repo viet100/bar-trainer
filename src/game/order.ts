@@ -160,6 +160,22 @@ const REGULARS: Customer[] = [
 ];
 
 // Used when Gemini is down or its order fails validation, so the game never stalls.
+// The only input /api/order takes: recently served drink names and the
+// player's memory id. Anything else (a chat prompt, extra fields, non-string
+// names) is refused before it can reach Gemini.
+const ORDER_REQUEST_KEYS = new Set(["recent", "assistantId"]);
+const MAX_RECENT = 10;
+export type OrderRequest = { recent: string[]; assistantId: unknown };
+
+export function parseOrderRequest(body: unknown): OrderRequest | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const fields = body as Record<string, unknown>;
+  if (Object.keys(fields).some((k) => !ORDER_REQUEST_KEYS.has(k))) return null;
+  const recent = fields.recent ?? [];
+  if (!Array.isArray(recent) || recent.length > MAX_RECENT || !recent.every((n) => typeof n === "string")) return null;
+  return { recent, assistantId: fields.assistantId };
+}
+
 export function classicOrder(recent: string[] = [], pick = Math.random): Order {
   const fresh = CLASSIC_RECIPES.filter((r) => !recent.includes(r.name));
   const pool = fresh.length ? fresh : CLASSIC_RECIPES;
