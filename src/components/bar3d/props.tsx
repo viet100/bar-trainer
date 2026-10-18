@@ -1,8 +1,9 @@
 "use client";
 
 import { RigidBody } from "@react-three/rapier";
-import { useLayoutEffect, useRef } from "react";
-import { DoubleSide, Matrix4, Quaternion, Vector3, type InstancedMesh } from "three";
+import { useFrame } from "@react-three/fiber";
+import { useLayoutEffect, useRef, useState } from "react";
+import { DoubleSide, Matrix4, Quaternion, Vector3, type Group, type InstancedMesh } from "three";
 import type { GarnishId } from "@/game/ingredients";
 import { ICE_TUB } from "./icePile";
 import iceWellLayout from "./iceWellLayout.json";
@@ -29,6 +30,50 @@ export function IceCubes({ count, at, dropY }: { count: number; at: XZ; dropY: n
         </RigidBody>
       ))}
     </>
+  );
+}
+
+// Ice in the shaker tin, stacked three to a layer instead of simulated: the
+// tin is narrow, so loose physics cubes jam and pop out, and stacked ice rides
+// along inside the tin when you carry it. New cubes fall in from above the
+// rim; ones already in the tin stay put. Positions are relative to the tin.
+const TIN_ICE_RING = 0.012; // a cube's center sits this far from the tin's axis
+export function TinIce({ count, rimY }: { count: number; rimY: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => {
+        const layer = Math.floor(i / 3);
+        const a = ((i % 3) * 2 * Math.PI) / 3 + layer * (Math.PI / 3);
+        return (
+          <FallingCube
+            key={i}
+            x={TIN_ICE_RING * Math.cos(a)}
+            z={TIN_ICE_RING * Math.sin(a)}
+            restY={0.004 + ICE_SIZE / 2 + layer * ICE_SIZE * 0.92}
+            fromY={rimY + 0.04 + (i % 3) * 0.02}
+            spin={i}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function FallingCube({ x, z, restY, fromY, spin }: { x: number; z: number; restY: number; fromY: number; spin: number }) {
+  const ref = useRef<Group>(null);
+  const speed = useRef(0);
+  const [start] = useState<[number, number, number]>(() => [x, fromY, z]);
+  useFrame((_, dt) => {
+    const g = ref.current;
+    if (!g || g.position.y <= restY) return;
+    const step = Math.min(dt, 0.05);
+    speed.current += 9.81 * step;
+    g.position.y = Math.max(restY, g.position.y - speed.current * step);
+  });
+  return (
+    <group ref={ref} position={start} rotation={[((spin * 0.37) % 0.3) - 0.15, spin * 1.3, ((spin * 0.53) % 0.3) - 0.15]}>
+      <IceCube />
+    </group>
   );
 }
 

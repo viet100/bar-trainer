@@ -33,16 +33,6 @@ const vesselGeometry = (shape: ShapeId) => {
   return g;
 };
 
-// Invisible fixed walls for ice to land in, for a vessel that can move (the
-// tin): it stays put at the vessel's home spot instead of following the drag.
-export function VesselCollider({ shape, position }: { shape: ShapeId; position: [number, number, number] }) {
-  return (
-    <RigidBody type="fixed" colliders="trimesh" position={position}>
-      <mesh geometry={vesselGeometry(shape)} visible={false} />
-    </RigidBody>
-  );
-}
-
 export default function Vessel({ shape, position, fill, liquidColor, targetFill, highlight, solid }: VesselProps) {
   const s = SHAPES[shape];
   const isTin = shape === "tin" || shape === "smallTin";
