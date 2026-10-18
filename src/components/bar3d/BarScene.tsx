@@ -3,10 +3,11 @@
 import { Canvas, events, useFrame, useThree, type RootState, type ThreeEvent } from "@react-three/fiber";
 import { CuboidCollider, Physics, RigidBody } from "@react-three/rapier";
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Color, Plane, Raycaster, Vector2, Vector3, type Camera, type Group } from "three";
+import { Color, Plane, Raycaster, Vector2, Vector3, type Camera, type Group, type PerspectiveCamera } from "three";
 import { ICE_CUBE_ML, capacityMl, liquidMl, type DrinkAction, type DrinkState, type Vessel as VesselState, type VesselId } from "@/game/drink";
 import { GLASS_IDS, type GlassId } from "@/game/glassware";
 import { INGREDIENTS, INGREDIENT_IDS, type GarnishId, type IngredientId } from "@/game/ingredients";
+import { SHAKE_OVER_S, SHAKE_READY_S } from "@/game/score";
 import Bottle3D, { type HeldBottle } from "./Bottle3D";
 import { BOTTLE_STYLES } from "./bottleStyles";
 import {
@@ -26,7 +27,7 @@ import {
   POUR_AT,
   POUR_INNER,
   SINK,
-  SPEED_RAIL,
+  RAILS,
   TIN,
   VESSEL_SPOT,
   bottleHome,
@@ -48,8 +49,9 @@ const ICE_SCOOP = 3;
 const SHAKE_SPEED = 0.6; // px per ms of pointer movement that counts as shaking
 const AIM_SETTLE_MS = 150; // a bottle must hover this long before it pours
 const POUR_HYSTERESIS = 0.08; // once pouring, it keeps going down to POUR_AT minus this
-const SCENE_ASPECT = 1.1; // width/height the layout is framed for
-const FOLLOW_RATE = 22; // easing speed per second for carried items
+const FOLLOW_RATE = 22; // easing speed per second into poses and back home
+const HELD_RATE = 50; // easing speed per second while following the cursor: about two frames behind
+const STRAIN_TILT = 1.9; // radians the tin tips over the glass when straining
 
 type Drag =
   | { kind: "bottle"; id: IngredientId }
@@ -103,20 +105,21 @@ const CAP_SEAT_Y = rimOf("tin") - CAP_INSET + rimOf("smallTin");
 
 export type ShakeMeterRefs = {
   root: RefObject<HTMLDivElement | null>;
-  arc: RefObject<SVGCircleElement | null>;
+  fill: RefObject<HTMLDivElement | null>;
   label: RefObject<HTMLSpanElement | null>;
 };
 
-// Shake guide: about 10-15 s of hard shaking chills and dilutes a sour properly.
-const SHAKE_GOOD_FROM_S = 10;
-const SHAKE_GOOD_TO_S = 15;
-const SHAKE_OVER_S = 20;
-const METER_R = 24;
-const METER_C = 2 * Math.PI * METER_R;
+// The bar spans 0 to "over" with a tick at "ready"; both come from the scoring
+// rules, so the meter and the grade always agree.
+const SHAKE_STATES = [
+  { below: SHAKE_READY_S, word: "Keep shaking", color: "#fcd34d" },
+  { below: SHAKE_OVER_S, word: "Ready to strain", color: "#34d399" },
+  { below: Infinity, word: "Over-diluted", color: "#f87171" },
+];
 
 export default function BarScene(props: BarSceneProps) {
   const meterRoot = useRef<HTMLDivElement>(null);
-  const meterArc = useRef<SVGCircleElement>(null);
+  const meterFill = useRef<HTMLDivElement>(null);
   const meterLabel = useRef<HTMLSpanElement>(null);
   return (
     <div className="relative h-full w-full touch-none select-none">
@@ -128,27 +131,17 @@ export default function BarScene(props: BarSceneProps) {
       >
         <color attach="background" args={["#140e0a"]} />
         <FitCamera />
-        <Scene {...props} meter={{ root: meterRoot, arc: meterArc, label: meterLabel }} />
+        <Scene {...props} meter={{ root: meterRoot, fill: meterFill, label: meterLabel }} />
       </Canvas>
       {/* Shake meter, pinned beside the shaker by the scene every frame */}
-      <div ref={meterRoot} className="pointer-events-none absolute left-0 top-0 hidden transition-[scale] duration-100">
-        <div className="relative -translate-x-1/2 -translate-y-1/2">
-          <svg width={64} height={64} viewBox="0 0 64 64" aria-hidden>
-            <circle cx={32} cy={32} r={METER_R} fill="rgba(12,10,9,0.75)" stroke="rgba(255,255,255,0.15)" strokeWidth={6} />
-            <circle
-              ref={meterArc}
-              cx={32}
-              cy={32}
-              r={METER_R}
-              fill="none"
-              strokeWidth={6}
-              strokeLinecap="round"
-              strokeDasharray={METER_C}
-              strokeDashoffset={METER_C}
-              transform="rotate(-90 32 32)"
-            />
-          </svg>
-          <span ref={meterLabel} className="absolute inset-0 grid place-items-center font-mono text-[11px] font-semibold text-white" />
+      <div ref={meterRoot} className="pointer-events-none absolute left-0 top-0 hidden">
+        <div className="w-28 -translate-y-1/2 rounded-lg bg-stone-950/80 px-2 py-1.5 shadow-lg shadow-black/50">
+          <span ref={meterLabel} className="block text-[11px] font-semibold text-white" />
+          <div className="relative mt-1 h-2 overflow-hidden rounded-full bg-white/15">
+            <div ref={meterFill} className="h-full w-0 rounded-full" />
+            {/* "ready" tick */}
+            <div className="absolute inset-y-0 w-0.5 bg-white/70" style={{ left: `${(SHAKE_READY_S / SHAKE_OVER_S) * 100}%` }} />
+          </div>
         </div>
       </div>
       {props.overlay}
@@ -172,7 +165,8 @@ function Scene(props: SceneProps) {
   const [hover, setHover] = useState<VesselId | "mat" | null>(null);
   const held = useRef(new Vector3()); // where the held thing's origin goes
   const bottle = useRef<HeldBottle>({ base: new Vector3(), reach: 0, mouth: null, side: 1, spout: new Vector3() });
-  const shake = useRef({ ms: 0, x: 0, y: 0, t: 0, wobble: 0, warned: false, lastShake: 0 });
+  const shake = useRef({ ms: 0, x: 0, y: 0, t: 0, wobble: 0, warned: false });
+  const tinPose = useRef<HeldPose>({ on: false, pos: new Vector3(), rot: 0 });
 
   // Picks something up so the exact point you clicked stays under the cursor:
   // the drag plane runs through that point (raised by the lift), and the
@@ -189,13 +183,35 @@ function Scene(props: SceneProps) {
     const baseY = magnet ? CARRY_Y : origin[1] + lift;
     const offX = magnet ? 0 : origin[0] - e.point.x;
     const offZ = magnet ? 0 : origin[2] - e.point.z;
+    // The tins are carried low, so they climb over the bar top's edge. As one
+    // rises, the grabbed point must rise with it to stay under the cursor. The
+    // height that does that is where the cursor's ray meets the climb, found
+    // by bisection: aiming higher only ever lands closer to the bartender,
+    // where the climb is lower, so there's exactly one answer.
+    const climbs = d.kind === "tin" || d.kind === "cap";
+    const grabAbove = planeY - baseY; // how far the grabbed point sits above the object's origin
+    const settle = (clientX: number, clientY: number, aimY: number) => {
+      pointerOnPlane(HIT, camera, gl.domElement, clientX, clientY, aimY);
+      return clearHeight(HIT.z + offZ, baseY) + grabAbove - aimY; // > 0: aim higher
+    };
     const follow = (clientX: number, clientY: number) => {
-      pointerOnPlane(HIT, camera, gl.domElement, clientX, clientY, planeY);
-      held.current.set(HIT.x + offX, baseY, HIT.z + offZ);
+      let aimY = planeY;
+      if (climbs && settle(clientX, clientY, planeY) > 0) {
+        let lo = planeY;
+        let hi = planeY + BAR_TOP + 0.1;
+        for (let i = 0; i < 24; i++) {
+          aimY = (lo + hi) / 2;
+          if (settle(clientX, clientY, aimY) > 0) lo = aimY;
+          else hi = aimY;
+        }
+        aimY = hi;
+      }
+      pointerOnPlane(HIT, camera, gl.domElement, clientX, clientY, aimY);
+      held.current.set(HIT.x + offX, aimY - grabAbove, HIT.z + offZ);
     };
     follow(e.nativeEvent.clientX, e.nativeEvent.clientY);
 
-    shake.current = { ms: 0, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY, t: e.nativeEvent.timeStamp, wobble: 0, warned: false, lastShake: 0 };
+    shake.current = { ms: 0, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY, t: e.nativeEvent.timeStamp, wobble: 0, warned: false };
     if (d.kind === "cap" && latest.current.drink.shakerCapped) latest.current.onAction({ type: "uncapShaker" });
     document.body.style.cursor = "grabbing";
     setDrag(d);
@@ -274,22 +290,36 @@ function Scene(props: SceneProps) {
         aimBottle(d.id, ev.clientX, ev.clientY);
         return;
       }
-      setOver(d.kind === "tin" ? (spotUnder() === "glass" ? "glass" : null) : spotUnder());
+      const spot = spotUnder();
+      setOver(d.kind === "tin" ? (spot === "glass" ? "glass" : null) : spot);
+
+      if (d.kind === "tin") {
+        // Over the glass and open: lift and tip the tin so its lip pours into the glass.
+        const { drink: dk } = latest.current;
+        const pose = tinPose.current;
+        pose.on = spot === "glass" && !dk.shakerCapped && !!dk.glass;
+        if (pose.on && dk.glass) {
+          const side = held.current.x >= MAT[0] ? 1 : -1;
+          pose.rot = side * STRAIN_TILT;
+          const lipY = MAT[1] + rimOf(dk.glass) + 0.035;
+          const rim = rimOf("tin");
+          // Tin mouth sits rim up its axis; rolled by `rot` it's at (-sin, cos) * rim from the base.
+          pose.pos.set(MAT[0] + rim * Math.sin(pose.rot), lipY - rim * Math.cos(pose.rot), MAT[2]);
+        }
+      }
 
       if (d.kind === "tin") {
         // Only quick back-and-forth motion counts as shaking, not slow dragging.
         const s = shake.current;
         const dt = ev.timeStamp - s.t;
         const speed = Math.hypot(ev.clientX - s.x, ev.clientY - s.y) / Math.max(dt, 1);
-        if (dt > 0 && dt < 100 && speed > SHAKE_SPEED) {
-          s.ms += dt;
-          s.lastShake = ev.timeStamp;
-        }
+        if (dt > 0 && dt < 100 && speed > SHAKE_SPEED) s.ms += dt;
         if (s.ms > 400 && !latest.current.drink.shakerCapped && !s.warned) {
           s.warned = true;
           latest.current.onNudge("Cap it first: drag the small tin onto the big one");
         }
-        s.wobble = Math.max(-1, Math.min(1, (ev.clientX - s.x) / 25));
+        // Rattle only while capped, i.e. shaking; carrying an open tin keeps it level.
+        s.wobble = latest.current.drink.shakerCapped ? Math.max(-1, Math.min(1, (ev.clientX - s.x) / 25)) : 0;
         s.x = ev.clientX;
         s.y = ev.clientY;
         s.t = ev.timeStamp;
@@ -330,6 +360,7 @@ function Scene(props: SceneProps) {
           if (distance(here(), xz(TIN)) < DROP_RADIUS) onAction({ type: "capShaker" });
           break;
       }
+      tinPose.current.on = false;
       document.body.style.cursor = "";
       setHover(null);
       setDrag(null);
@@ -345,11 +376,11 @@ function Scene(props: SceneProps) {
     window.addEventListener("blur", drop);
   };
 
-  // Shake meter: total shake time (recorded + this grab, if capped), pinned
-  // beside the tin, pulsing while you're actively shaking.
+  // Shake meter: total shake time (recorded + this grab, if capped). It stays
+  // put beside the tin's spot on the drainboard, so it's readable while you shake.
   useFrame(() => {
-    const { root, arc, label } = latest.current.meter;
-    if (!root.current || !arc.current || !label.current) return;
+    const { root, fill, label } = latest.current.meter;
+    if (!root.current || !fill.current || !label.current) return;
     const holding = drag?.kind === "tin";
     const capped = drink.shakerCapped;
     const ms = drink.shakerMix.shakeMs + (holding && capped ? shake.current.ms : 0);
@@ -357,18 +388,15 @@ function Scene(props: SceneProps) {
     root.current.style.display = show ? "block" : "none";
     if (!show) return;
 
-    const at = holding ? held.current : SCRATCH.set(...TIN);
-    const screen = SCRATCH.set(at.x + 0.09, at.y + rimOf("tin") + 0.03, at.z).project(camera);
+    const screen = SCRATCH.set(TIN[0] + 0.09, TIN[1] + rimOf("tin") + 0.03, TIN[2]).project(camera);
     const rect = gl.domElement.getBoundingClientRect();
     root.current.style.transform = `translate(${((screen.x + 1) / 2) * rect.width}px, ${((1 - screen.y) / 2) * rect.height}px)`;
 
     const secs = ms / 1000;
-    arc.current.style.strokeDashoffset = String(METER_C * (1 - Math.min(1, secs / SHAKE_GOOD_TO_S)));
-    arc.current.style.stroke =
-      secs >= SHAKE_OVER_S ? "#f87171" : secs >= SHAKE_GOOD_FROM_S ? "#34d399" : "#fcd34d";
-    label.current.textContent = `${secs.toFixed(1)}s`;
-    const shakingNow = holding && performance.now() - shake.current.lastShake < 150;
-    root.current.style.scale = shakingNow ? "1.12" : "1";
+    const state = SHAKE_STATES.find((st) => secs < st.below)!;
+    fill.current.style.width = `${Math.min(1, secs / SHAKE_OVER_S) * 100}%`;
+    fill.current.style.background = state.color;
+    label.current.textContent = state.word;
   });
 
   // Pin the pour gauge beside the vessel being poured into.
@@ -454,7 +482,7 @@ function Scene(props: SceneProps) {
       </Suspense>
 
       {/* Boston shaker: big tin, with the small tin seated upside down in it when capped */}
-      <Follow active={tinHeld} home={TIN} held={held} wobble={shake}>
+      <Follow active={tinHeld} home={TIN} held={held} wobble={shake} pose={tinPose}>
         <group {...grabCursor} onPointerDown={(e) => grab({ kind: "tin" }, e, TIN)}>
           <Vessel
             shape="tin"
@@ -557,7 +585,7 @@ function Scene(props: SceneProps) {
   );
 }
 
-const UNDERBAR_FRONT = SPEED_RAIL.z - 0.02; // the underbar's edge nearest the bartender
+const UNDERBAR_FRONT = RAILS[0].z - 0.02; // the underbar's edge nearest the bartender
 const UNDERBAR_WIDTH = 1.2;
 
 // The underbar slab as four boxes [x, z, width, depth] that leave a hole for the ice well.
@@ -584,9 +612,6 @@ const STEEL = { color: "#aab0b6", metalness: 0.6, roughness: 0.35 } as const;
 // The fixed parts of the station: marble bar top with the rail mat on it,
 // its steel face, the underbar work surface, the speed rail and the sink.
 function Station({ matLit }: { matLit: boolean }) {
-  const railX = INGREDIENT_IDS.map((id) => bottleHome(id)[0]);
-  const railFrom = Math.min(...railX) - 0.04;
-  const railTo = Math.max(...railX) + 0.04;
   const topDepth = BAR_TOP_FRONT - BAR_TOP_BACK;
   const underDepth = UNDERBAR_FRONT - BAR_TOP_FRONT;
   return (
@@ -617,15 +642,24 @@ function Station({ matLit }: { matLit: boolean }) {
         <boxGeometry args={[1.2, 0.34, 0.01]} />
         <meshStandardMaterial color="#8d939a" metalness={0.6} roughness={0.4} />
       </mesh>
-      {/* Speed rail: a shelf the bottles stand on, with a guard bar across the front */}
-      <mesh position={[(railFrom + railTo) / 2, SPEED_RAIL.baseY - 0.005, SPEED_RAIL.z]} receiveShadow castShadow>
-        <boxGeometry args={[railTo - railFrom, 0.01, 0.07]} />
-        <meshStandardMaterial {...STEEL} />
-      </mesh>
-      <mesh position={[(railFrom + railTo) / 2, SPEED_RAIL.baseY + 0.07, SPEED_RAIL.z + 0.034]} castShadow>
-        <boxGeometry args={[railTo - railFrom, 0.012, 0.004]} />
-        <meshStandardMaterial {...STEEL} />
-      </mesh>
+      {/* Speed rails: a shelf for each tier, with a guard bar across the front */}
+      {RAILS.map((rail) => {
+        const xs = INGREDIENT_IDS.filter((id) => rail.categories.includes(INGREDIENTS[id].category)).map((id) => bottleHome(id)[0]);
+        const from = Math.min(...xs) - 0.04;
+        const to = Math.max(...xs) + 0.04;
+        return (
+          <group key={rail.z}>
+            <mesh position={[(from + to) / 2, rail.baseY - 0.005, rail.z]} receiveShadow castShadow>
+              <boxGeometry args={[to - from, 0.01, 0.065]} />
+              <meshStandardMaterial {...STEEL} />
+            </mesh>
+            <mesh position={[(from + to) / 2, rail.baseY + 0.07, rail.z + 0.032]} castShadow>
+              <boxGeometry args={[to - from, 0.012, 0.004]} />
+              <meshStandardMaterial {...STEEL} />
+            </mesh>
+          </group>
+        );
+      })}
       {/* Sink with a gooseneck tap */}
       <mesh position={[SINK[0], 0.001, SINK[2]]}>
         <boxGeometry args={[0.12, 0.004, 0.11]} />
@@ -643,18 +677,24 @@ function Station({ matLit }: { matLit: boolean }) {
   );
 }
 
+// A pose that overrides following the cursor, e.g. the tin tipped over the glass.
+type HeldPose = { on: boolean; pos: Vector3; rot: number };
+
 // Eases its children toward the held position while active, and home after.
+// While `pose` is on, it eases into that position and tilt instead.
 function Follow({
   active,
   home,
   held,
   wobble,
+  pose,
   children,
 }: {
   active: boolean;
   home: readonly [number, number, number];
   held: RefObject<Vector3>;
   wobble?: RefObject<{ wobble: number }>;
+  pose?: RefObject<HeldPose>;
   children: ReactNode;
 }) {
   const ref = useRef<Group>(null);
@@ -662,11 +702,15 @@ function Follow({
   useFrame((_, dt) => {
     const g = ref.current;
     if (!g) return;
-    const k = 1 - Math.exp(-FOLLOW_RATE * Math.min(dt, 0.05)); // frame-rate independent easing
-    if (active && held.current) goal.copy(held.current);
+    const posed = active && pose?.current?.on;
+    // Track the cursor tightly while held; ease more gently into poses and back home.
+    const rate = active && !posed ? HELD_RATE : FOLLOW_RATE;
+    const k = 1 - Math.exp(-rate * Math.min(dt, 0.05)); // frame-rate independent easing
+    if (posed) goal.copy(pose.current.pos);
+    else if (active && held.current) goal.copy(held.current);
     else goal.set(...home);
     g.position.lerp(goal, k);
-    const tilt = active && wobble?.current ? wobble.current.wobble * 0.5 : 0;
+    const tilt = posed ? pose.current.rot : active && wobble?.current ? wobble.current.wobble * 0.5 : 0;
     g.rotation.z += (tilt - g.rotation.z) * k;
   });
   return (
@@ -676,18 +720,86 @@ function Follow({
   );
 }
 
-// The scene is framed for a roughly square view. In a narrower one, back the
-// camera away along its line of sight so the whole counter stays in frame.
+// Points the whole station must stay inside: the tall glasses at the back
+// left, the bar top's far corners, the sink tap, the shaker's top, and the
+// bottom of the front speed rail. Mostly the rail matters on wide screens and
+// the sides on narrow ones.
+const FRAME_POINTS = (() => {
+  const front = RAILS[RAILS.length - 1];
+  const xs = INGREDIENT_IDS.map((id) => bottleHome(id)[0]);
+  return [
+    [-0.58, BAR_TOP + 0.18, -0.42],
+    [-0.6, BAR_TOP, BAR_TOP_BACK],
+    [0.6, BAR_TOP, BAR_TOP_BACK],
+    [SINK[0] + 0.07, 0.13, SINK[2]],
+    [TIN[0], 0.32, TIN[2]],
+    [Math.min(...xs) - 0.04, front.baseY - 0.02, front.z + 0.04],
+    [Math.max(...xs) + 0.04, front.baseY - 0.02, front.z + 0.04],
+  ].map(([x, y, z]) => new Vector3(x, y, z));
+})();
+const FRAME_MARGIN = 0.94; // keep points this far inside the edges (NDC)
+
+// Frames the station for whatever shape the window is: slides the camera along
+// its line of sight until every frame point fits, then shifts it up or down so
+// the station sits centered. The viewing angle never changes. Runs in the
+// frame loop, once per window size.
 function FitCamera() {
-  const { camera, size } = useThree();
-  useEffect(() => {
-    const k = Math.max(1, SCENE_ASPECT / (size.width / size.height));
-    const [tx, ty, tz] = CAMERA.target;
-    const [px, py, pz] = CAMERA.position;
-    camera.position.set(tx + (px - tx) * k, ty + (py - ty) * k, tz + (pz - tz) * k);
-    camera.lookAt(tx, ty, tz);
-  }, [camera, size.width, size.height]);
+  const fittedFor = useRef("");
+  useFrame(({ camera, size }) => {
+    const key = `${size.width}x${size.height}`;
+    if (fittedFor.current === key || !size.width || !size.height) return;
+    fittedFor.current = key;
+    fitStation(camera as PerspectiveCamera, size.width / size.height);
+    if (process.env.NODE_ENV !== "production") {
+      // Lets browser tests aim at scene points the same way the camera sees them.
+      (window as unknown as { __barCamera?: unknown }).__barCamera = camera;
+    }
+  });
   return null;
+}
+
+function fitStation(camera: PerspectiveCamera, aspect: number) {
+  camera.aspect = aspect;
+  camera.updateProjectionMatrix();
+  const target = new Vector3(...CAMERA.target);
+  const back = new Vector3(...CAMERA.position).sub(target); // camera offset from target
+  const lift = new Vector3();
+  const place = (k: number) => {
+    camera.position.copy(target).add(lift).addScaledVector(back, k);
+    camera.lookAt(SCRATCH.copy(target).add(lift));
+    camera.updateMatrixWorld();
+  };
+  const extent = () => {
+    let worst = 0;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const p of FRAME_POINTS) {
+      const v = SCRATCH.copy(p).project(camera);
+      worst = Math.max(worst, Math.abs(v.x), Math.abs(v.y));
+      lo = Math.min(lo, v.y);
+      hi = Math.max(hi, v.y);
+    }
+    return { worst, mid: (lo + hi) / 2 };
+  };
+
+  let k = 1;
+  for (let pass = 0; pass < 3; pass++) {
+    // The closest distance where everything fits.
+    let near = 0.5;
+    let far = 4;
+    for (let i = 0; i < 30; i++) {
+      k = (near + far) / 2;
+      place(k);
+      if (extent().worst <= FRAME_MARGIN) far = k;
+      else near = k;
+    }
+    k = far;
+    place(k);
+    // Center vertically: move along the camera's up direction by the leftover offset.
+    const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+    lift.addScaledVector(up, extent().mid * back.length() * k * Math.tan((CAMERA.fov * Math.PI) / 360));
+  }
+  place(k);
 }
 
 // Aim with clientX and the canvas's on-screen box instead of R3F's default

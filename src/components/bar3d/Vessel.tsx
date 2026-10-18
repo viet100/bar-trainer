@@ -7,6 +7,8 @@ import { glassOutline, heightForFraction, liquidOutline, radiusAt, SHAPES } from
 
 export type ShapeId = keyof typeof SHAPES;
 
+const rimHeightOf = (shape: { inner: [number, number][] }) => shape.inner[shape.inner.length - 1][1];
+
 const lathe = (profile: [number, number][], segments = 48) =>
   new LatheGeometry(profile.map(([r, y]) => new Vector2(r, y)), segments);
 
@@ -44,6 +46,7 @@ export function VesselCollider({ shape, position }: { shape: ShapeId; position: 
 export default function Vessel({ shape, position, fill, liquidColor, targetFill, highlight, solid }: VesselProps) {
   const s = SHAPES[shape];
   const isTin = shape === "tin" || shape === "smallTin";
+  const isCopper = shape === "mule";
   const glassGeo = vesselGeometry(shape);
 
   const bottom = s.inner[0][1];
@@ -62,6 +65,8 @@ export default function Vessel({ shape, position, fill, liquidColor, targetFill,
       {isTin ? (
         // Brushed steel: full metalness renders near-black with nothing around to reflect.
         <meshStandardMaterial color="#d9dce0" metalness={0.55} roughness={0.38} />
+      ) : isCopper ? (
+        <meshStandardMaterial color="#c47a45" metalness={0.6} roughness={0.32} />
       ) : (
         <meshStandardMaterial color="#e3eef2" transparent opacity={0.2} roughness={0.05} side={DoubleSide} depthWrite={false} />
       )}
@@ -76,6 +81,14 @@ export default function Vessel({ shape, position, fill, liquidColor, targetFill,
         </RigidBody>
       ) : (
         body
+      )}
+
+      {isCopper && (
+        // The mug's handle, on the right side.
+        <mesh position={[s.inner[s.inner.length - 1][0] + s.wall + 0.012, rimHeightOf(s) * 0.5, 0]} castShadow>
+          <torusGeometry args={[0.022, 0.004, 8, 20, Math.PI]} />
+          <meshStandardMaterial color="#c47a45" metalness={0.6} roughness={0.32} />
+        </mesh>
       )}
 
       {s.stem && (
