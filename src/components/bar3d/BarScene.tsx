@@ -7,6 +7,7 @@ import { Color, Plane, Raycaster, Vector2, Vector3, type Camera, type Group, typ
 import { ICE_CUBE_ML, capacityMl, liquidMl, type DrinkAction, type DrinkState, type Vessel as VesselState, type VesselId } from "@/game/drink";
 import { GLASS_IDS, type GlassId } from "@/game/glassware";
 import { INGREDIENTS, INGREDIENT_IDS, type GarnishId, type IngredientId } from "@/game/ingredients";
+import { SHAKE_OVER_S, SHAKE_READY_S } from "@/game/score";
 import Bottle3D, { type HeldBottle } from "./Bottle3D";
 import { BOTTLE_STYLES } from "./bottleStyles";
 import {
@@ -48,7 +49,8 @@ const ICE_SCOOP = 3;
 const SHAKE_SPEED = 0.6; // px per ms of pointer movement that counts as shaking
 const AIM_SETTLE_MS = 150; // a bottle must hover this long before it pours
 const POUR_HYSTERESIS = 0.08; // once pouring, it keeps going down to POUR_AT minus this
-const FOLLOW_RATE = 22; // easing speed per second for carried items
+const FOLLOW_RATE = 22; // easing speed per second into poses and back home
+const HELD_RATE = 50; // easing speed per second while following the cursor: about two frames behind
 const STRAIN_TILT = 1.9; // radians the tin tips over the glass when straining
 
 type Drag =
@@ -107,10 +109,8 @@ export type ShakeMeterRefs = {
   label: RefObject<HTMLSpanElement | null>;
 };
 
-// Shake guide: about 10 s of hard shaking chills and dilutes a sour properly;
-// past 20 s it's watered down. The bar spans 0-20 s with a tick at "ready".
-const SHAKE_READY_S = 10;
-const SHAKE_OVER_S = 20;
+// The bar spans 0 to "over" with a tick at "ready"; both come from the scoring
+// rules, so the meter and the grade always agree.
 const SHAKE_STATES = [
   { below: SHAKE_READY_S, word: "Keep shaking", color: "#fcd34d" },
   { below: SHAKE_OVER_S, word: "Ready to strain", color: "#34d399" },
@@ -184,20 +184,30 @@ function Scene(props: SceneProps) {
     const offX = magnet ? 0 : origin[0] - e.point.x;
     const offZ = magnet ? 0 : origin[2] - e.point.z;
     // The tins are carried low, so they climb over the bar top's edge. As one
-    // rises, the grabbed point must rise with it to stay under the cursor:
-    // re-aim at the new height a few times until it settles.
+    // rises, the grabbed point must rise with it to stay under the cursor. The
+    // height that does that is where the cursor's ray meets the climb, found
+    // by bisection: aiming higher only ever lands closer to the bartender,
+    // where the climb is lower, so there's exactly one answer.
     const climbs = d.kind === "tin" || d.kind === "cap";
     const grabAbove = planeY - baseY; // how far the grabbed point sits above the object's origin
+    const settle = (clientX: number, clientY: number, aimY: number) => {
+      pointerOnPlane(HIT, camera, gl.domElement, clientX, clientY, aimY);
+      return clearHeight(HIT.z + offZ, baseY) + grabAbove - aimY; // > 0: aim higher
+    };
     const follow = (clientX: number, clientY: number) => {
       let aimY = planeY;
-      let y = baseY;
-      for (let i = 0; i < (climbs ? 4 : 1); i++) {
-        pointerOnPlane(HIT, camera, gl.domElement, clientX, clientY, aimY);
-        y = climbs ? clearHeight(HIT.z + offZ, baseY) : baseY;
-        if (Math.abs(y + grabAbove - aimY) < 1e-4) break;
-        aimY = y + grabAbove;
+      if (climbs && settle(clientX, clientY, planeY) > 0) {
+        let lo = planeY;
+        let hi = planeY + BAR_TOP + 0.1;
+        for (let i = 0; i < 24; i++) {
+          aimY = (lo + hi) / 2;
+          if (settle(clientX, clientY, aimY) > 0) lo = aimY;
+          else hi = aimY;
+        }
+        aimY = hi;
       }
-      held.current.set(HIT.x + offX, y, HIT.z + offZ);
+      pointerOnPlane(HIT, camera, gl.domElement, clientX, clientY, aimY);
+      held.current.set(HIT.x + offX, aimY - grabAbove, HIT.z + offZ);
     };
     follow(e.nativeEvent.clientX, e.nativeEvent.clientY);
 
@@ -308,7 +318,8 @@ function Scene(props: SceneProps) {
           s.warned = true;
           latest.current.onNudge("Cap it first: drag the small tin onto the big one");
         }
-        s.wobble = Math.max(-1, Math.min(1, (ev.clientX - s.x) / 25));
+        // Rattle only while capped, i.e. shaking; carrying an open tin keeps it level.
+        s.wobble = latest.current.drink.shakerCapped ? Math.max(-1, Math.min(1, (ev.clientX - s.x) / 25)) : 0;
         s.x = ev.clientX;
         s.y = ev.clientY;
         s.t = ev.timeStamp;
@@ -691,8 +702,10 @@ function Follow({
   useFrame((_, dt) => {
     const g = ref.current;
     if (!g) return;
-    const k = 1 - Math.exp(-FOLLOW_RATE * Math.min(dt, 0.05)); // frame-rate independent easing
     const posed = active && pose?.current?.on;
+    // Track the cursor tightly while held; ease more gently into poses and back home.
+    const rate = active && !posed ? HELD_RATE : FOLLOW_RATE;
+    const k = 1 - Math.exp(-rate * Math.min(dt, 0.05)); // frame-rate independent easing
     if (posed) goal.copy(pose.current.pos);
     else if (active && held.current) goal.copy(held.current);
     else goal.set(...home);

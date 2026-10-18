@@ -4,7 +4,7 @@ import { ML_PER_OZ } from "../lib/pour.ts";
 import { INITIAL_DRINK, drinkReducer, type DrinkAction } from "./drink.ts";
 import { measureDrink } from "./measure.ts";
 import { CLASSIC_RECIPES } from "./recipes.ts";
-import { scoreDrink, starsFor } from "./score.ts";
+import { scoreDrink, SHAKE_OVER_S, SHAKE_READY_S, starsFor } from "./score.ts";
 
 const oz = (n: number) => n * ML_PER_OZ;
 const margarita = CLASSIC_RECIPES.find((r) => r.name === "Margarita")!;
@@ -18,7 +18,7 @@ const shakeMargarita = (tequilaOz = 2): DrinkAction[] => [
   { type: "pour", into: "shaker", ingredient: "lime-juice", ml: oz(1) },
   { type: "addIce", into: "shaker", cubes: 6 },
   { type: "capShaker" },
-  { type: "shake", ms: 10000 },
+  { type: "shake", ms: 5000 },
 ];
 const finish: DrinkAction[] = [{ type: "uncapShaker" }, { type: "strain" }, { type: "garnish", garnish: "lime-wedge" }];
 
@@ -52,7 +52,7 @@ test("wrong glass, no ice and shaking without ice are each named", () => {
     { type: "pour", into: "shaker", ingredient: "triple-sec", ml: oz(1) },
     { type: "pour", into: "shaker", ingredient: "lime-juice", ml: oz(1) },
     { type: "capShaker" },
-    { type: "shake", ms: 10000 },
+    { type: "shake", ms: 5000 },
     ...finish,
   ]);
   assert.equal(s.points, 100 - 10 - 10 - 7); // half of 15 technique points rounds to 8 kept
@@ -64,4 +64,20 @@ test("wrong glass, no ice and shaking without ice are each named", () => {
 
 test("star thresholds", () => {
   assert.deepEqual([100, 90, 89, 75, 74, 60, 59, 40, 39, 0].map(starsFor), [5, 5, 4, 4, 3, 3, 2, 2, 1, 1]);
+});
+
+test("a shake counts once it reaches ready, and costs half the technique points if too short or too long", () => {
+  const shakeFor = (ms: number) =>
+    score([
+      ...shakeMargarita().filter((a) => a.type !== "shake"),
+      { type: "shake", ms },
+      ...finish,
+    ]);
+  assert.equal(shakeFor(SHAKE_READY_S * 1000).points, 100);
+  const short = shakeFor(1000);
+  assert.equal(short.points, 100 - 7); // half of 15 technique points rounds to 8 kept
+  assert.match(short.mistakes[0], /Shook for only 1\.0 s/);
+  const long = shakeFor((SHAKE_OVER_S + 2) * 1000);
+  assert.equal(long.points, 93);
+  assert.match(long.mistakes[0], /watered down/);
 });

@@ -9,6 +9,11 @@ const SPILL_PENALTY_PER_OZ = 5;
 const MAX_SPILL_PENALTY = 10;
 const NOTICEABLE_OZ = 0.125; // a pour error smaller than an eighth of an ounce isn't called out
 
+// Shaking is shortened for practice: long enough to teach which drinks get
+// shaken, short enough not to be a chore. The shake meter uses these too.
+export const SHAKE_READY_S = 3;
+export const SHAKE_OVER_S = 8;
+
 export type Stars = 1 | 2 | 3 | 4 | 5;
 
 export type Score = {
@@ -49,11 +54,21 @@ export function scoreDrink(m: Measurement): Score {
   const t = m.technique;
   let technique = 0;
   if (t.actual === t.expected) {
-    const needsIce = t.expected !== "build";
-    technique = !needsIce || t.mixedWithIce ? WEIGHTS.technique : Math.round(WEIGHTS.technique / 2);
-    if (needsIce && !t.mixedWithIce) {
-      costed.push({ cost: WEIGHTS.technique / 2, text: `${t.expected === "shake" ? "Shook" : "Stirred"} without ice in the tin, so it isn't chilled or diluted` });
+    // Each slip costs half the technique points: no ice in the tin, or a
+    // shake that's too short or too long.
+    const half = WEIGHTS.technique / 2;
+    const slips: string[] = [];
+    if (t.expected !== "build" && !t.mixedWithIce) {
+      slips.push(`${t.expected === "shake" ? "Shook" : "Stirred"} without ice in the tin, so it isn't chilled or diluted`);
     }
+    if (t.expected === "shake" && t.shakeSeconds < SHAKE_READY_S) {
+      slips.push(`Shook for only ${t.shakeSeconds.toFixed(1)} s; shake until the meter reads ready (${SHAKE_READY_S} s)`);
+    }
+    if (t.expected === "shake" && t.shakeSeconds > SHAKE_OVER_S) {
+      slips.push(`Shook for ${t.shakeSeconds.toFixed(1)} s, past ${SHAKE_OVER_S} s: the drink gets watered down`);
+    }
+    technique = Math.max(0, Math.round(WEIGHTS.technique - half * slips.length));
+    for (const text of slips) costed.push({ cost: half, text });
   } else {
     costed.push({ cost: WEIGHTS.technique, text: `Technique was "${t.actual}" but this drink is ${t.expected === "build" ? "built in the glass" : `${t.expected === "shake" ? "shaken" : "stirred"} and strained`}` });
   }
