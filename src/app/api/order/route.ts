@@ -1,4 +1,6 @@
+import { isAssistantId, recallBrief, WEAKNESS_QUERY } from "@/game/memory";
 import { classicOrder, parseOrder } from "@/game/order";
+import { backboardEnabled, recall } from "@/server/backboard";
 import { generateJson } from "@/server/gemini";
 import { buildOrderPrompt } from "@/server/orderPrompt";
 import { allow, visitorOf } from "@/server/rateLimit";
@@ -10,7 +12,9 @@ const PER_VISITOR_PER_MIN = 10;
 const OVERALL_PER_MIN = 60;
 const MINUTE = 60_000;
 
-// POST /api/order { recent?: string[] } -> Order
+const RECALL_LIMIT = 8;
+
+// POST /api/order { recent?: string[], assistantId? } -> Order & { targeting?: string[] }
 // Every Gemini order must pass parseOrder's safety checks. A rejected order is
 // regenerated once; if Gemini is unreachable or keeps failing the checks, the
 // customer orders off the classic menu so the game never stalls.
@@ -27,18 +31,32 @@ export async function POST(request: Request) {
     return Response.json(classicOrder(recent));
   }
 
+  // The trainee's weak spots from Backboard memory steer the drink choice.
+  const weakSpots = await recallWeakSpots(body?.assistantId);
+
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     let raw: unknown;
     try {
-      raw = await generateJson(buildOrderPrompt(recent));
+      raw = await generateJson(buildOrderPrompt(recent, weakSpots));
     } catch (err) {
       // Every model already failed; asking again would only burn quota.
       console.warn(`[order] Gemini unavailable, serving a classic: ${(err as Error).message}`);
       break;
     }
     const result = parseOrder(raw);
-    if (result.ok) return Response.json(result.order);
+    if (result.ok) return Response.json(weakSpots.length ? { ...result.order, targeting: weakSpots.slice(0, 2) } : result.order);
     console.warn(`[order] attempt ${attempt}: rejected Gemini order: ${result.reason}`);
   }
   return Response.json(classicOrder(recent));
+}
+
+// Best effort: no memory, or a memory outage, just means an untargeted order.
+async function recallWeakSpots(assistantId: unknown): Promise<string[]> {
+  if (!isAssistantId(assistantId) || !backboardEnabled()) return [];
+  try {
+    return recallBrief(await recall(assistantId, WEAKNESS_QUERY, RECALL_LIMIT));
+  } catch (err) {
+    console.warn(`[memory] recall failed: ${(err as Error).message}`);
+    return [];
+  }
 }

@@ -19,6 +19,7 @@ import { CLASSIC_RECIPES } from "@/game/recipes";
 import { scoreDrink, type Score } from "@/game/score";
 import { newShift, parSeconds, recordServe, shiftOver, shiftTips, type Shift, type Tip } from "@/game/shift";
 import { usePourController } from "@/hooks/usePourController";
+import { useTraineeMemory } from "@/hooks/useTraineeMemory";
 import { ML_PER_OZ, mlToOz } from "@/lib/pour";
 
 const STIR_STEP = 5;
@@ -33,12 +34,12 @@ const BarScene = dynamic(() => import("@/components/bar3d/BarScene"), {
 const FIRST_ORDER = classicOrder([], () => 0);
 
 // Never rejects: offline or server errors fall back to the classic menu.
-async function fetchOrder(recent: string[]): Promise<Order> {
+async function fetchOrder(recent: string[], assistantId: string | null): Promise<Order> {
   try {
     const res = await fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recent }),
+      body: JSON.stringify({ recent, assistantId }),
     });
     if (!res.ok) throw new Error(`order failed: ${res.status}`);
     return await res.json();
@@ -48,12 +49,12 @@ async function fetchOrder(recent: string[]): Promise<Order> {
 }
 
 // Never rejects: if the grader is unreachable, the rubric's own grade is used.
-async function fetchGrade(order: Order, measurement: Measurement): Promise<Grade> {
+async function fetchGrade(order: Order, measurement: Measurement, assistantId: string | null): Promise<Grade> {
   try {
     const res = await fetch("/api/grade", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order, measurement }),
+      body: JSON.stringify({ order, measurement, assistantId }),
     });
     if (!res.ok) throw new Error(`grade failed: ${res.status}`);
     return (await res.json()).grade;
@@ -68,6 +69,7 @@ type Served = { measurement: Measurement; score: Score; grade: Grade | null; tip
 // customer and order column on the right.
 export default function BarStation() {
   const [drink, dispatch] = useReducer(drinkReducer, INITIAL_DRINK);
+  const memoryId = useTraineeMemory(); // Backboard memory; null until ready or if switched off
   const [order, setOrder] = useState<Order>(FIRST_ORDER);
   const [arrival, setArrival] = useState(1);
   const [recent, setRecent] = useState<string[]>([FIRST_ORDER.recipe.name]);
@@ -127,9 +129,15 @@ export default function BarStation() {
   // The next customer is fetched while you make the current drink, so Gemini's
   // 2-20 s latency is hidden behind gameplay instead of a loading screen.
   const upcoming = useRef<Promise<Order> | null>(null);
+  // The first prefetch starts before the memory id has loaded. If it arrives
+  // while we're still on the first customer, fetch that next one again with
+  // memory, so it's already targeted at the player's weak spots.
+  const prefetchedWith = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    upcoming.current ??= fetchOrder([FIRST_ORDER.recipe.name]);
-  }, []);
+    if (arrival !== 1 || prefetchedWith.current === memoryId) return;
+    prefetchedWith.current = memoryId;
+    upcoming.current = fetchOrder([FIRST_ORDER.recipe.name], memoryId);
+  }, [arrival, memoryId]);
 
   const takeOrder = (next: Order) => {
     pour.reset();
@@ -142,7 +150,7 @@ export default function BarStation() {
     setPouringInto(null);
     setArrivedAt(Date.now());
     setNow(Date.now());
-    upcoming.current = fetchOrder(nextRecent);
+    upcoming.current = fetchOrder(nextRecent, memoryId);
   };
 
   // Tick the service clock once a second until the drink is served.
@@ -164,7 +172,7 @@ export default function BarStation() {
     setNow(Date.now());
     setServed({ measurement, score: scoreDrink(measurement), grade: null, tip: null });
 
-    const grade = await fetchGrade(order, measurement);
+    const grade = await fetchGrade(order, measurement, memoryId);
     const nextShift = recordServe(shift, {
       drink: recipe.name,
       stars: grade.stars,
@@ -189,7 +197,7 @@ export default function BarStation() {
       return;
     }
     setLoadingCustomer(true);
-    const next = await (upcoming.current ?? fetchOrder(recent));
+    const next = await (upcoming.current ?? fetchOrder(recent, memoryId));
     setLoadingCustomer(false);
     takeOrder(next);
   };
@@ -278,7 +286,7 @@ export default function BarStation() {
         />
 
         {summaryOpen ? (
-          <ShiftSummary shift={shift} onNextShift={startNextShift} />
+          <ShiftSummary shift={shift} onNextShift={startNextShift} remembered={!!memoryId} />
         ) : (
           <>
             <CustomerPanel order={order} arrival={arrival} loading={loadingCustomer} reaction={served?.grade?.reaction} />
@@ -320,6 +328,17 @@ export default function BarStation() {
             )}
 
             <OrderTicket recipe={recipe} ticketNo={arrival} hidden={memoryMode && !served} />
+            {order.targeting && order.targeting.length > 0 && (
+              <section className="rounded-xl border border-sky-800/60 bg-sky-950/40 p-3 text-sm">
+                <p className="text-[11px] uppercase tracking-widest text-sky-300">Targeting your weak spots</p>
+                <p className="mt-0.5 text-xs text-stone-400">This order was picked from your Backboard practice memory:</p>
+                <ul className="mt-1.5 space-y-0.5 text-stone-200">
+                  {order.targeting.map((t) => (
+                    <li key={t}>· {t}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </>
         )}
 
