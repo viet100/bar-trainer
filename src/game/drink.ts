@@ -9,7 +9,7 @@ export type Vessel = { contents: Contents; ice: number };
 export type VesselId = "glass" | "shaker";
 
 // How a shaker batch was mixed. Raw facts only; judging them is Gemini's job.
-export type Mix = { shakeMs: number; stirTurns: number; withIce: boolean };
+export type Mix = { shakeMs: number; stirMs: number; withIce: boolean };
 
 export type DrinkState = {
   glass: GlassId | null;
@@ -29,7 +29,7 @@ export type DrinkAction =
   | { type: "pour"; into: VesselId; ingredient: IngredientId; ml: number }
   | { type: "addIce"; into: VesselId; cubes: number }
   | { type: "shake"; ms: number }
-  | { type: "stir"; turns: number }
+  | { type: "stir"; ms: number }
   | { type: "strain" }
   | { type: "garnish"; garnish: GarnishId }
   | { type: "dump"; vessel: VesselId }
@@ -41,7 +41,7 @@ export type DrinkAction =
 export const ICE_CUBE_ML = 20;
 
 const EMPTY_VESSEL: Vessel = { contents: {}, ice: 0 };
-const NO_MIX: Mix = { shakeMs: 0, stirTurns: 0, withIce: false };
+const NO_MIX: Mix = { shakeMs: 0, stirMs: 0, withIce: false };
 
 export const INITIAL_DRINK: DrinkState = {
   glass: null,
@@ -115,7 +115,7 @@ export function drinkReducer(state: DrinkState, action: DrinkAction): DrinkState
         ...state,
         shakerMix: {
           shakeMs: mix.shakeMs + (action.type === "shake" ? action.ms : 0),
-          stirTurns: mix.stirTurns + (action.type === "stir" ? action.turns : 0),
+          stirMs: mix.stirMs + (action.type === "stir" ? action.ms : 0),
           withIce: mix.withIce || state.inShaker.ice > 0,
         },
       };
@@ -135,7 +135,7 @@ export function drinkReducer(state: DrinkState, action: DrinkAction): DrinkState
         strainedMix: prev
           ? {
               shakeMs: prev.shakeMs + mix.shakeMs,
-              stirTurns: prev.stirTurns + mix.stirTurns,
+              stirMs: prev.stirMs + mix.stirMs,
               withIce: prev.withIce || mix.withIce,
             }
           : mix,

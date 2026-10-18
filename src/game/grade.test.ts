@@ -42,7 +42,7 @@ const margarita = CLASSIC_RECIPES.find((r) => r.name === "Margarita")!;
 const measured = {
   ingredients: [{ id: "tequila", actualOz: 2.5 }, { id: "triple-sec", actualOz: 1 }],
   glass: { actual: "rocks" },
-  technique: { actual: "shake", shakeSeconds: 10, stirTurns: 0, mixedWithIce: true },
+  technique: { actual: "shake", shakeSeconds: 10, stirSeconds: 0, mixedWithIce: true },
   ice: { actual: 3 },
   garnish: { actual: null },
   spilledOz: 0,

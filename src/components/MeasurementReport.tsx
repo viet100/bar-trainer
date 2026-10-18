@@ -49,7 +49,7 @@ export default function MeasurementReport({ m }: { m: Measurement }) {
         <li>
           <Mark ok={t.actual === t.expected} /> Technique: {t.actual}
           {t.shakeSeconds > 0 && `, ${t.shakeSeconds}s shake`}
-          {t.stirTurns > 0 && `, ${t.stirTurns} stirs`}
+          {t.stirSeconds > 0 && `, ${t.stirSeconds}s stir`}
           {t.actual !== "build" && (t.mixedWithIce ? ", with ice" : ", no ice in tin")}{" "}
           <span className="text-stone-500">(want {t.expected})</span>
         </li>
