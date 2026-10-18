@@ -210,7 +210,8 @@ export default function BarStation() {
   return (
     <main className="flex flex-1 flex-col bg-stone-950 font-sans text-stone-100 md:h-dvh md:flex-row">
       {/* ── Bar (left 70%) ── */}
-      <section aria-label="Bar" className="relative h-[60vh] md:h-auto md:w-[70%]">
+      {/* The bar gets all the width the sidebar doesn't need */}
+      <section aria-label="Bar" className="relative h-[60vh] min-w-0 md:h-auto md:flex-1">
         <BarScene
           drink={drink}
           pouringId={pour.activeId}
@@ -232,29 +233,32 @@ export default function BarStation() {
                 )}
               </div>
 
-              <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-stone-400">
-                Bring a bottle toward the glass or tin and it tips to pour · drag glasses, ice and garnish onto the glass · cap the big tin with the small one to shake, uncap it and drop it on the glass to strain
-              </p>
               {nudge && (
                 <p className="pointer-events-none absolute inset-x-0 top-1/2 mx-auto w-fit animate-bubble-in rounded-full bg-red-500/90 px-4 py-1.5 text-sm font-semibold text-white">
                   {nudge}
                 </p>
               )}
 
-              <div className="absolute inset-x-3 bottom-3 flex flex-wrap items-end justify-between gap-2">
-                <p className="max-w-md text-xs text-stone-400">
-                  {drink.glass ? (
-                    <>
-                      <span className="font-semibold text-stone-200">{GLASSES[drink.glass].name}:</span> {GLASSES[drink.glass].why}
-                    </>
-                  ) : (
-                    "Each glass exists for a reason. Drag the one this drink needs onto the mat."
-                  )}
+              {/* Top of the bar area, clear of the speed rail labels: how to play, the glass's purpose, and tools */}
+              <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-col gap-2">
+                <p className="text-center text-xs text-stone-400">
+                  Bring a bottle toward the glass or tin and it tips to pour · drag glasses, ice and garnish onto the glass · cap the big tin with the small one to shake, uncap it and drop it on the glass to strain
                 </p>
-                <div className="flex gap-1.5">
-                  <ToolButton onClick={() => dispatch({ type: "stir", turns: STIR_STEP })}>Stir tin +{STIR_STEP}</ToolButton>
-                  <ToolButton onClick={() => dispatch({ type: "dump", vessel: "shaker" })}>Dump tin</ToolButton>
-                  <ToolButton onClick={() => dispatch({ type: "dump", vessel: "glass" })}>Dump glass</ToolButton>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="max-w-md text-xs text-stone-400">
+                    {drink.glass ? (
+                      <>
+                        <span className="font-semibold text-stone-200">{GLASSES[drink.glass].name}:</span> {GLASSES[drink.glass].why}
+                      </>
+                    ) : (
+                      "Each glass exists for a reason. Drag the one this drink needs onto the mat."
+                    )}
+                  </p>
+                  <div className="pointer-events-auto flex gap-1.5">
+                    <ToolButton onClick={() => dispatch({ type: "stir", turns: STIR_STEP })}>Stir tin +{STIR_STEP}</ToolButton>
+                    <ToolButton onClick={() => dispatch({ type: "dump", vessel: "shaker" })}>Dump tin</ToolButton>
+                    <ToolButton onClick={() => dispatch({ type: "dump", vessel: "glass" })}>Dump glass</ToolButton>
+                  </div>
                 </div>
               </div>
             </>
@@ -263,7 +267,7 @@ export default function BarStation() {
       </section>
 
       {/* ── Customer + order column (right 30%) ── */}
-      <aside className="flex flex-col gap-4 overflow-y-auto border-stone-800 bg-stone-900 p-4 md:w-[30%] md:min-w-80 md:border-l">
+      <aside className="flex flex-col gap-4 overflow-y-auto border-stone-800 bg-stone-900 p-4 md:w-[clamp(20rem,24vw,25rem)] md:shrink-0 md:border-l">
         <header className="flex items-center justify-between gap-2">
           <h1 className="text-xl font-bold tracking-tight">Make a Drink</h1>
           <button

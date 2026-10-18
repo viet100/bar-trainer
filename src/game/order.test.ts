@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { classicOrder, parseOrder } from "./order.ts";
+import { CLASSIC_RECIPES } from "./recipes.ts";
 
 const valid = {
   customerName: "Rosa",
@@ -134,7 +135,8 @@ test("rejects missing or overlong text", () => {
 });
 
 test("classic fallback skips recently served drinks", () => {
-  const recent = ["Margarita", "Daiquiri", "Cosmopolitan", "Gin Martini", "Tom Collins", "Gin & Tonic", "Cuba Libre"];
+  // Everything but the Tequila Shot was just served, so that's the only fresh pick.
+  const recent = CLASSIC_RECIPES.map((r) => r.name).filter((n) => n !== "Tequila Shot");
   const o = classicOrder(recent, () => 0);
   assert.equal(o.recipe.name, "Tequila Shot");
   assert.equal(o.source, "classic");

@@ -65,6 +65,44 @@ export function GarnishModel({ id }: { id: GarnishId }) {
           <meshStandardMaterial color="#f2c832" roughness={0.5} />
         </mesh>
       );
+    case "orange-peel":
+      return (
+        <mesh rotation={[0.3, 0, -0.5]} castShadow>
+          <torusGeometry args={[0.011, 0.003, 6, 20, Math.PI * 1.4]} />
+          <meshStandardMaterial color="#f08a1c" roughness={0.5} />
+        </mesh>
+      );
+    case "orange-wheel":
+      return (
+        <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
+          <cylinderGeometry args={[0.019, 0.019, 0.004, 20]} />
+          <meshStandardMaterial color="#f39a2a" roughness={0.5} />
+        </mesh>
+      );
+    case "cherry":
+      return (
+        <group>
+          <mesh castShadow>
+            <sphereGeometry args={[0.008, 14, 10]} />
+            <meshStandardMaterial color="#9b0f1f" roughness={0.25} />
+          </mesh>
+          <mesh position={[0.002, 0.014, 0]} rotation={[0, 0, -0.25]}>
+            <cylinderGeometry args={[0.0007, 0.0007, 0.02, 6]} />
+            <meshStandardMaterial color="#5a6b2a" />
+          </mesh>
+        </group>
+      );
+    case "mint":
+      return (
+        <group>
+          {[0, 1, 2].map((i) => (
+            <mesh key={i} position={[(i - 1) * 0.006, 0.004 + (i % 2) * 0.004, 0]} rotation={[0.3, i * 1.9, (i - 1) * 0.5]} scale={[1, 0.25, 0.6]} castShadow>
+              <sphereGeometry args={[0.008, 10, 8]} />
+              <meshStandardMaterial color="#3f9a3a" roughness={0.6} />
+            </mesh>
+          ))}
+        </group>
+      );
     case "olive":
       return (
         <group>
@@ -157,10 +195,12 @@ export function IceWell({ at, size }: { at: Spot; size: XZ }) {
 
 // Garnish caddy: a steel tray with four white cups, like the ones on a real well.
 export function GarnishCaddy({ at, cups }: { at: Spot; cups: Spot[] }) {
+  const zs = cups.map(([, , z]) => z);
+  const depth = Math.max(...zs) - Math.min(...zs) + 0.06;
   return (
     <group>
       <mesh position={[at[0], 0.004, at[2]]} receiveShadow castShadow>
-        <boxGeometry args={[0.13, 0.008, 0.15]} />
+        <boxGeometry args={[0.13, 0.008, depth]} />
         <meshStandardMaterial color="#b7bcc1" metalness={0.6} roughness={0.35} />
       </mesh>
       {cups.map(([x, , z], i) => (

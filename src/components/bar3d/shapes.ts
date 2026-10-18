@@ -24,6 +24,7 @@ export const SHAPES: Record<GlassId | "tin" | "smallTin", VesselShape> = {
   },
   martini: { inner: [[0, 0.098], [0.0069, 0.1], [0.0501, 0.168]], wall: 0.002, stem: { top: 0.098, footRadius: 0.036 } },
   shot: { inner: [[0, 0.012], [0.018, 0.012], [0.0208, 0.062]], wall: 0.003 },
+  mule: { inner: [[0, 0.006], [0.0365, 0.006], [0.0385, 0.1]], wall: 0.002 }, // copper mug (handle added when drawn)
   // Drawn smaller than a real 28 oz tin so it doesn't tower over the glasses;
   // its fill level is a fraction of the game capacity, so it still reads right.
   tin: { inner: [[0, 0.004], [0.032, 0.004], [0.036, 0.15]], wall: 0.0012 },

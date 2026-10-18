@@ -2,16 +2,23 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { INGREDIENT_IDS, INGREDIENTS } from "../../game/ingredients.ts";
 import { GLASS_IDS } from "../../game/glassware.ts";
-import { BAR_TOP, BAR_TOP_FRONT, bottleHome, clearHeight, glassHome, MAT, MAT_SIZE, onMat, POUR_AT, POUR_INNER, POUR_OUTER, pourReach, SPEED_RAIL } from "./layout.ts";
+import { BAR_TOP, BAR_TOP_FRONT, bottleHome, clearHeight, glassHome, MAT, MAT_SIZE, onMat, POUR_AT, POUR_INNER, POUR_OUTER, pourReach, RAILS } from "./layout.ts";
 
-test("every bottle has its own slot on the speed rail, grouped by category", () => {
-  const homes = INGREDIENT_IDS.map(bottleHome);
-  assert.equal(new Set(homes.map(([x]) => x)).size, homes.length);
-  assert.ok(homes.every(([, y, z]) => y === SPEED_RAIL.baseY && z === SPEED_RAIL.z));
-  // Walking the rail left to right, each category appears as one unbroken run.
-  const cats = [...INGREDIENT_IDS].sort((a, b) => bottleHome(a)[0] - bottleHome(b)[0]).map((id) => INGREDIENTS[id].category);
-  const runs = cats.filter((c, i) => i === 0 || c !== cats[i - 1]);
-  assert.equal(runs.length, new Set(cats).size);
+test("every bottle has its own slot, liquor on the back rail and the rest in front, grouped by category", () => {
+  const spots = INGREDIENT_IDS.map(bottleHome);
+  assert.ok(spots.every(Boolean), "every ingredient has a slot");
+  assert.equal(new Set(spots.map(([x, , z]) => `${x}|${z}`)).size, spots.length, "no two share a slot");
+  for (const id of INGREDIENT_IDS) {
+    const rail = RAILS.find((r) => r.categories.includes(INGREDIENTS[id].category));
+    assert.ok(rail, `${id} has a rail`);
+    assert.deepEqual([bottleHome(id)[1], bottleHome(id)[2]], [rail.baseY, rail.z], id);
+  }
+  // Along each rail, each category is one unbroken run.
+  for (const rail of RAILS) {
+    const ids = INGREDIENT_IDS.filter((id) => rail.categories.includes(INGREDIENTS[id].category));
+    const cats = ids.sort((a, b) => bottleHome(a)[0] - bottleHome(b)[0]).map((id) => INGREDIENTS[id].category);
+    assert.equal(cats.filter((c, i) => i === 0 || c !== cats[i - 1]).length, new Set(cats).size);
+  }
 });
 
 test("the mat and glassware are up on the bar top, behind the underbar", () => {

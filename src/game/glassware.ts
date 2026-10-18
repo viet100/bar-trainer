@@ -39,6 +39,11 @@ export const GLASSES = {
     capacityMl: oz(2),
     why: "Holds one straight pour, meant to be drunk in one go.",
   },
+  mule: {
+    name: "Copper mug",
+    capacityMl: oz(14),
+    why: "The Moscow Mule's mug: copper takes the ice's chill, so the drink and the mug stay ice cold.",
+  },
 } as const satisfies Record<string, Glass>;
 
 export type GlassId = keyof typeof GLASSES;
