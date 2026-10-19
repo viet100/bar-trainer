@@ -36,6 +36,7 @@ export function buildGradePrompt(order: Order, score: Score, choice: ChoiceResul
     `Customer: ${customer.name}, ${customer.vibe}. When ordering they said: "${order.line}"`,
     `Drink: ${recipe.name}, ${GLASSES[recipe.glass].name} glass, ${recipe.technique}, ${recipe.ice ? "on the rocks" : "up"}, garnish: ${recipe.garnish ? GARNISHES[recipe.garnish] : "none"}.`,
     ...(order.special.length ? [`Their special request, changed from the classic: ${order.special.join("; ")}.`] : []),
+    ...(order.mystery ? [`They forgot the drink's name and described it; it was a ${order.recipe.name}.`] : []),
     ...(choice
       ? [
           `Bartender’s choice: they asked for something ${choice.asked} and let the bartender pick. The bartender made ${choice.made ?? "something that isn’t on the menu"}, which ${choice.fits ? "fits" : "doesn’t fit"} what they asked for.`,

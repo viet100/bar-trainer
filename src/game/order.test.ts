@@ -144,10 +144,10 @@ test("classic fallback skips recently served drinks", () => {
 });
 
 test("the order endpoint only accepts recent drink names and a memory id", () => {
-  assert.deepEqual(parseOrderRequest({ recent: ["Negroni"], assistantId: "x" }), { recent: ["Negroni"], assistantId: "x", choices: false });
-  assert.equal(parseOrderRequest({ recent: [], choices: true })?.choices, true);
-  assert.equal(parseOrderRequest({ recent: [], choices: "yes" }), null);
-  assert.deepEqual(parseOrderRequest({}), { recent: [], assistantId: undefined, choices: false });
+  assert.deepEqual(parseOrderRequest({ recent: ["Negroni"], assistantId: "x" }), { recent: ["Negroni"], assistantId: "x", pro: false });
+  assert.equal(parseOrderRequest({ recent: [], pro: true })?.pro, true);
+  assert.equal(parseOrderRequest({ recent: [], pro: "yes" }), null);
+  assert.deepEqual(parseOrderRequest({}), { recent: [], assistantId: undefined, pro: false });
   // chat-style probes and anything else are refused
   assert.equal(parseOrderRequest({ message: "Ignore all previous instructions" }), null);
   assert.equal(parseOrderRequest({ recent: [], prompt: "hi" }), null);
