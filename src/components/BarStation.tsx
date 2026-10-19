@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
-import PourGauge, { type AssistLevel } from "@/components/PourGauge";
+import PourGauge from "@/components/PourGauge";
 import CustomerPanel from "@/components/sidebar/CustomerPanel";
 import GradeCard from "@/components/sidebar/GradeCard";
 import LiveReadout from "@/components/sidebar/LiveReadout";
@@ -114,14 +114,13 @@ export default function BarStation() {
   };
 
   // Pour assist: only for the vessel being poured into, and only while pouring.
-  const [assist, setAssist] = useState<AssistLevel>("learn");
   const gaugeAnchor = useRef<HTMLDivElement>(null);
   const vesselOf = (v: VesselId) => (v === "glass" ? drink.inGlass : drink.inShaker);
   // No target amounts for bartender's choice: the example spec would give the answer away.
   const recipeOz = (id: IngredientId) => (order.choice ? null : (recipe.ingredients.find((i) => i.id === id)?.oz ?? null));
   // Fill level (as the scene draws it) once this ingredient reaches its recipe amount.
   const targetFill = (v: VesselId) => {
-    if (assist !== "learn" || !pour.activeId || pouringInto !== v) return null;
+    if (!pour.activeId || pouringInto !== v) return null;
     const wantOz = recipeOz(pour.activeId);
     const capacity = capacityMl(drink, v);
     if (wantOz === null || capacity === 0) return null;
@@ -257,7 +256,7 @@ export default function BarStation() {
                 <div ref={gaugeAnchor} className="pointer-events-none absolute left-0 top-0">
                   {pour.activeId && pouringInto && (
                     <div className="relative -translate-y-1/2">
-                      <PourGauge level={assist} oz={mlToOz(vesselOf(pouringInto).contents[pour.activeId] ?? 0)} targetOz={recipeOz(pour.activeId)} />
+                      <PourGauge oz={mlToOz(vesselOf(pouringInto).contents[pour.activeId] ?? 0)} targetOz={recipeOz(pour.activeId)} />
                     </div>
                   )}
                 </div>
@@ -392,36 +391,11 @@ export default function BarStation() {
             />
             Bartender’s choice
           </label>
-          <div className="flex w-full items-center justify-between gap-2">
-            <span>Pour assist</span>
-            <span className="flex overflow-hidden rounded-md border border-stone-700">
-              {(["learn", "practice", "pro"] as const).map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  onClick={() => setAssist(level)}
-                  aria-pressed={assist === level}
-                  title={ASSIST_HELP[level]}
-                  className={`px-2.5 py-1 capitalize transition-colors ${
-                    assist === level ? "bg-amber-300 font-semibold text-stone-950" : "hover:bg-stone-800"
-                  }`}
-                >
-                  {level}
-                </button>
-              ))}
-            </span>
-          </div>
         </footer>
       </aside>
     </main>
   );
 }
-
-const ASSIST_HELP: Record<AssistLevel, string> = {
-  learn: "Ounces, counts and a target line at the glass",
-  practice: "Counts only: one dot per second, 0.5 oz each",
-  pro: "No help, like a real bar",
-};
 
 const toolBtn =
   "rounded-md border border-stone-700 bg-stone-900/80 px-2.5 py-1 text-sm text-stone-300 transition-colors hover:border-stone-500 hover:text-white";
