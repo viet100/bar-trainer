@@ -203,7 +203,7 @@ export default function BarStation() {
 
   const practiceClassic = (index: number) => {
     const r = CLASSIC_RECIPES[index];
-    takeOrder({ ...order, recipe: r, line: `Could I get a ${r.name}, please?`, source: "classic" });
+    takeOrder({ ...order, recipe: r, line: `Could I get a ${r.name}, please?`, source: "classic", special: [] });
   };
 
   return (
@@ -329,7 +329,7 @@ export default function BarStation() {
               </>
             )}
 
-            <OrderTicket recipe={recipe} ticketNo={arrival} hidden={memoryMode && !served} />
+            <OrderTicket recipe={recipe} special={order.special ?? []} ticketNo={arrival} hidden={memoryMode && !served} />
             {order.targeting && order.targeting.length > 0 && (
               <section className="rounded-xl border border-sky-800/60 bg-sky-950/40 p-3 text-sm">
                 <p className="text-[11px] uppercase tracking-widest text-sky-300">Targeting your weak spots</p>
