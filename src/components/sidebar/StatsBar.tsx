@@ -1,8 +1,5 @@
-import { SHIFT_LENGTH } from "@/game/shift";
-
-type ShiftBarProps = {
-  shiftNumber: number;
-  customer: number; // 1-based position in the shift
+type StatsBarProps = {
+  served: number; // drinks served so far
   tips: number;
   streak: number;
   seconds: number;
@@ -11,11 +8,11 @@ type ShiftBarProps = {
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function ShiftBar({ shiftNumber, customer, tips, streak, seconds, par }: ShiftBarProps) {
+export default function StatsBar({ served, tips, streak, seconds, par }: StatsBarProps) {
   const late = seconds > par;
   return (
     <div className="grid grid-cols-4 gap-2 rounded-xl border border-stone-800 bg-stone-950/60 p-2 text-center text-[11px] text-stone-500">
-      <Stat label={`Shift ${shiftNumber}`} value={`${Math.min(customer, SHIFT_LENGTH)}/${SHIFT_LENGTH}`} />
+      <Stat label="Served" value={String(served)} />
       <Stat label="Tips" value={`$${tips}`} accent="text-emerald-300" />
       <Stat label="Streak" value={String(streak)} accent={streak >= 2 ? "text-amber-200" : undefined} />
       <Stat label={`Par ${clock(par)}`} value={clock(seconds)} accent={late ? "text-red-400" : "text-stone-100"} />
