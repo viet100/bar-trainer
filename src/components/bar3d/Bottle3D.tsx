@@ -14,7 +14,7 @@ import {
   type MeshBasicMaterial,
 } from "three";
 import { liquidHeight, POURER_HEIGHT, spoutHeight, type BottleShape, type BottleStyle } from "./bottleStyles";
-import type { Spot } from "./layout";
+import { RAILS, type Spot } from "./layout";
 import { glassOutline, liquidOutline } from "./shapes";
 
 const HELD_TILT = 0.15; // a slight lean the moment you pick it up
@@ -110,6 +110,12 @@ export default function Bottle3D({ name, color, style, home, held, onGrab }: Bot
   const cardMaterial = useRef<MeshBasicMaterial>(null);
   const { camera } = useThree();
   const label = useMemo(() => labelTexture(name), [name]);
+  // Bottle glass is see-through and doesn't block what's behind it, so draw
+  // order decides which bottle looks in front. Seen from above, the raised
+  // back rail sorts as nearer than the front rail and would paint over its
+  // shoulders: draw resting back-rail bottles first. A held bottle sorts normally.
+  const backRow = home[2] < RAILS[RAILS.length - 1].z;
+  const shellOrder = backRow && !held ? 1.5 : 2;
   useEffect(() => () => label.dispose(), [label]);
 
   const goal = useMemo(() => new Vector3(), []);
@@ -169,7 +175,7 @@ export default function Bottle3D({ name, color, style, home, held, onGrab }: Bot
           <meshStandardMaterial color={color} transparent opacity={0.9} roughness={0.2} />
         </mesh>
         {/* Glass (or plastic) shell */}
-        <mesh geometry={shellOf(style.shape)} castShadow renderOrder={2}>
+        <mesh geometry={shellOf(style.shape)} castShadow renderOrder={shellOrder}>
           <meshStandardMaterial
             color={style.glass.color}
             transparent
