@@ -24,11 +24,9 @@ export default function CustomerPanel({ order, arrival, loading, reaction }: Cus
           {reaction ?? order.line}
         </p>
       </div>
+      {/* No age on screen: every order is checked to be 21+ on the server. */}
       <p className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
         <span className="font-semibold text-stone-100">{customer.name}</span>
-        <span className="rounded border border-emerald-700/60 px-1.5 text-[11px] text-emerald-300">
-          ID checked · {customer.age}
-        </span>
         {order.source === "classic" && <span className="text-[11px] text-stone-500">classic menu</span>}
       </p>
       <p className="text-xs text-stone-500">{customer.vibe}</p>
