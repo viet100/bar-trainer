@@ -1,4 +1,4 @@
-import { asChoice, FLAVORS } from "@/game/choice";
+import { asChoice, rollChoice } from "@/game/choice";
 import { isAssistantId, recallBrief, WEAKNESS_QUERY } from "@/game/memory";
 import { classicOrder, parseOrder, parseOrderRequest } from "@/game/order";
 import { backboardEnabled, recall } from "@/server/backboard";
@@ -19,7 +19,7 @@ const REFUSAL =
   "Sorry, I can't help with that. This endpoint only writes the next bar customer's order from { recent, assistantId }; it doesn't take prompts or questions.";
 
 // POST /api/order { recent?: string[], assistantId?, choices?: boolean } -> Order & { targeting?: string[] }
-// choices: bartender's choice mode, where every customer asks for a flavor instead of a drink.
+// choices: bartender's choice mode, where some customers ask for a flavor instead of a drink.
 // Any other body is refused with a 400 and never reaches Gemini.
 // Every Gemini order must pass parseOrder's safety checks. A rejected order is
 // regenerated once; if Gemini is unreachable or keeps failing the checks, the
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   const body = parseOrderRequest(await request.json().catch(() => null));
   if (!body) return Response.json({ error: REFUSAL }, { status: 400 });
   const { recent } = body;
-  const choice = body.choices ? FLAVORS[Math.floor(Math.random() * FLAVORS.length)] : undefined;
+  const choice = rollChoice(body.choices);
 
   // Over the limit, the customer still arrives, just off the free classic menu.
   const visitor = visitorOf(request);

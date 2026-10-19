@@ -9,7 +9,7 @@ import LiveReadout from "@/components/sidebar/LiveReadout";
 import OrderTicket from "@/components/sidebar/OrderTicket";
 import ShiftBar from "@/components/sidebar/ShiftBar";
 import ShiftSummary from "@/components/sidebar/ShiftSummary";
-import { FLAVORS, gradeTarget, pouredIds } from "@/game/choice";
+import { gradeTarget, pouredIds, rollChoice } from "@/game/choice";
 import { ICE_CUBE_ML, INITIAL_DRINK, capacityMl, drinkReducer, liquidMl, type VesselId } from "@/game/drink";
 import { GLASSES } from "@/game/glassware";
 import { fallbackGrade, type Grade } from "@/game/grade";
@@ -45,7 +45,7 @@ async function fetchOrder(recent: string[], assistantId: string | null, choices:
     if (!res.ok) throw new Error(`order failed: ${res.status}`);
     return await res.json();
   } catch {
-    return classicOrder(recent, Math.random, choices ? FLAVORS[Math.floor(Math.random() * FLAVORS.length)] : undefined);
+    return classicOrder(recent, Math.random, rollChoice(choices));
   }
 }
 
