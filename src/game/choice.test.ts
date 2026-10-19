@@ -88,11 +88,11 @@ test("only known ingredients with a positive amount count from a sent measuremen
   assert.deepEqual(pouredInMeasurement({ ingredients: "gin" }), []);
 });
 
-test("the toggle only makes flavor requests possible, about a third of the time", () => {
+test("the toggle only makes flavor requests possible, for about 1 in 6 customers", () => {
   assert.equal(rollChoice(false, () => 0), undefined, "off: never");
   assert.equal(rollChoice(true, () => CHOICE_RATE + 0.01), undefined, "on: most customers still name a drink");
   assert.equal(rollChoice(true, () => 0), "bitter");
   let asked = 0;
   for (let i = 0; i < 300; i++) if (rollChoice(true, () => ((i * 37) % 300) / 300)) asked++;
-  assert.equal(asked, 100);
+  assert.equal(asked, 50);
 });

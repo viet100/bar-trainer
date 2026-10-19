@@ -18,7 +18,7 @@ export const FLAVORS = Object.keys(FLAVOR_DRINKS) as Flavor[];
 export const isFlavor = (v: unknown): v is Flavor => typeof v === "string" && Object.hasOwn(FLAVOR_DRINKS, v);
 
 // With bartender's choice turned on, about this share of customers asks by flavor.
-export const CHOICE_RATE = 1 / 3;
+export const CHOICE_RATE = 1 / 6;
 
 // Whether the next customer asks by flavor, and which one. Off: never.
 export const rollChoice = (enabled: boolean, pick = Math.random): Flavor | undefined =>
