@@ -218,58 +218,60 @@ export default function BarStation() {
     <main className="flex flex-1 flex-col bg-stone-950 font-sans text-stone-100 md:h-dvh md:flex-row">
       {/* ── Bar (left 70%) ── */}
       {/* The bar gets all the width the sidebar doesn't need */}
-      <section aria-label="Bar" className="relative h-[60vh] min-w-0 md:h-auto md:flex-1">
-        <BarScene
-          drink={drink}
-          pouringId={pour.activeId}
-          pouringInto={pouringInto}
-          targetFill={{ glass: targetFill("glass"), shaker: targetFill("shaker") }}
-          onPour={startPouring}
-          onPourStop={stopPouring}
-          onAction={dispatch}
-          onNudge={showNudge}
-          gaugeAnchor={gaugeAnchor}
-          overlay={
-            <>
-              {/* Pinned beside the vessel being poured into by the scene, every frame. */}
-              <div ref={gaugeAnchor} className="pointer-events-none absolute left-0 top-0">
-                {pour.activeId && pouringInto && (
-                  <div className="relative -translate-y-1/2">
-                    <PourGauge level={assist} oz={mlToOz(vesselOf(pouringInto).contents[pour.activeId] ?? 0)} targetOz={recipeOz(pour.activeId)} />
-                  </div>
-                )}
-              </div>
-
-              {nudge && (
-                <p className="pointer-events-none absolute inset-x-0 top-1/2 mx-auto w-fit animate-bubble-in rounded-full bg-red-500/90 px-4 py-1.5 text-sm font-semibold text-white">
-                  {nudge}
-                </p>
+      <section aria-label="Bar" className="flex h-[60vh] min-w-0 flex-col md:h-auto md:flex-1">
+        {/* How to play, the glass's purpose, and tools: a strip above the 3D view, never over it */}
+        <div className="flex flex-col gap-2 bg-[#140e0a] px-3 pt-3 pb-1">
+          <p className="text-center text-xs text-stone-400">
+            Bring a bottle toward the glass or tin and it tips to pour · drag glasses, ice and garnish onto the glass · cap the big tin with the small one to shake, or circle the bar spoon in the open tin to stir · drop the open tin on the glass to strain
+          </p>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="max-w-md text-xs text-stone-400">
+              {drink.glass ? (
+                <>
+                  <span className="font-semibold text-stone-200">{GLASSES[drink.glass].name}:</span> {GLASSES[drink.glass].why}
+                </>
+              ) : (
+                "Each glass exists for a reason. Drag the one this drink needs onto the mat."
               )}
-
-              {/* Top of the bar area, clear of the speed rail labels: how to play, the glass's purpose, and tools */}
-              <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-col gap-2">
-                <p className="text-center text-xs text-stone-400">
-                  Bring a bottle toward the glass or tin and it tips to pour · drag glasses, ice and garnish onto the glass · cap the big tin with the small one to shake, or circle the bar spoon in the open tin to stir · drop the open tin on the glass to strain
-                </p>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="max-w-md text-xs text-stone-400">
-                    {drink.glass ? (
-                      <>
-                        <span className="font-semibold text-stone-200">{GLASSES[drink.glass].name}:</span> {GLASSES[drink.glass].why}
-                      </>
-                    ) : (
-                      "Each glass exists for a reason. Drag the one this drink needs onto the mat."
-                    )}
-                  </p>
-                  <div className="pointer-events-auto flex gap-1.5">
-                    <ToolButton onClick={() => dispatch({ type: "dump", vessel: "shaker" })}>Dump tin</ToolButton>
-                    <ToolButton onClick={() => dispatch({ type: "dump", vessel: "glass" })}>Dump glass</ToolButton>
-                  </div>
+            </p>
+            <div className="flex gap-1.5">
+              <ToolButton onClick={() => dispatch({ type: "dump", vessel: "shaker" })}>Dump tin</ToolButton>
+              <ToolButton onClick={() => dispatch({ type: "dump", vessel: "glass" })}>Dump glass</ToolButton>
+            </div>
+          </div>
+        </div>
+        <div className="relative min-h-0 flex-1">
+          <BarScene
+            drink={drink}
+            pouringId={pour.activeId}
+            pouringInto={pouringInto}
+            targetFill={{ glass: targetFill("glass"), shaker: targetFill("shaker") }}
+            onPour={startPouring}
+            onPourStop={stopPouring}
+            onAction={dispatch}
+            onNudge={showNudge}
+            gaugeAnchor={gaugeAnchor}
+            overlay={
+              <>
+                {/* Pinned beside the vessel being poured into by the scene, every frame. */}
+                <div ref={gaugeAnchor} className="pointer-events-none absolute left-0 top-0">
+                  {pour.activeId && pouringInto && (
+                    <div className="relative -translate-y-1/2">
+                      <PourGauge level={assist} oz={mlToOz(vesselOf(pouringInto).contents[pour.activeId] ?? 0)} targetOz={recipeOz(pour.activeId)} />
+                    </div>
+                  )}
                 </div>
-              </div>
-            </>
-          }
-        />
+
+                {nudge && (
+                  <p className="pointer-events-none absolute inset-x-0 top-1/2 mx-auto w-fit animate-bubble-in rounded-full bg-red-500/90 px-4 py-1.5 text-sm font-semibold text-white">
+                    {nudge}
+                  </p>
+                )}
+
+              </>
+            }
+          />
+        </div>
       </section>
 
       {/* ── Customer + order column (right 30%) ── */}
