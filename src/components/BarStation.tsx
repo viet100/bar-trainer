@@ -7,8 +7,7 @@ import CustomerPanel from "@/components/sidebar/CustomerPanel";
 import GradeCard from "@/components/sidebar/GradeCard";
 import LiveReadout from "@/components/sidebar/LiveReadout";
 import OrderTicket from "@/components/sidebar/OrderTicket";
-import ShiftBar from "@/components/sidebar/ShiftBar";
-import ShiftSummary from "@/components/sidebar/ShiftSummary";
+import StatsBar from "@/components/sidebar/StatsBar";
 import { gradeTarget, pouredIds, rollChoice } from "@/game/choice";
 import { ICE_CUBE_ML, INITIAL_DRINK, capacityMl, drinkReducer, liquidMl, type VesselId } from "@/game/drink";
 import { GLASSES } from "@/game/glassware";
@@ -18,7 +17,7 @@ import { measureDrink, type Measurement } from "@/game/measure";
 import { classicOrder, type Order } from "@/game/order";
 import { CLASSIC_RECIPES, type Recipe } from "@/game/recipes";
 import { scoreDrink, type Score } from "@/game/score";
-import { newShift, parSeconds, recordServe, shiftOver, shiftTips, type Shift, type Tip } from "@/game/shift";
+import { newTab, parSeconds, recordServe, type Tab, type Tip } from "@/game/tips";
 import { usePourController } from "@/hooks/usePourController";
 import { useTraineeMemory } from "@/hooks/useTraineeMemory";
 import { ML_PER_OZ, mlToOz } from "@/lib/pour";
@@ -79,8 +78,7 @@ export default function BarStation() {
   const [memoryMode, setMemoryMode] = useState(false);
   const [choiceMode, setChoiceMode] = useState(false);
   const [served, setServed] = useState<Served | null>(null);
-  const [shift, setShift] = useState<Shift>(() => newShift());
-  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>(newTab); // endless: drinks served, tips and streak keep adding up
   // Service clock: starts when the customer arrives, stops at Serve.
   const [arrivedAt, setArrivedAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -179,29 +177,17 @@ export default function BarStation() {
     setServed({ recipe: target.recipe, measurement, score, grade: null, tip: null });
 
     const grade = await fetchGrade(order, measurement, memoryId, score);
-    const nextShift = recordServe(shift, {
-      drink: target.recipe.name,
+    const { tab: nextTab, tip } = recordServe(tab, {
       stars: grade.stars,
       sendBack: grade.sendBack,
       seconds: servedSeconds,
       par: parSeconds(target.recipe),
-      measurement,
     });
-    setShift(nextShift);
-    setServed((s) => s && { ...s, grade, tip: nextShift.served.at(-1)!.tip });
-  };
-
-  const startNextShift = () => {
-    setShift((s) => newShift(s.number + 1));
-    setSummaryOpen(false);
-    void nextCustomer();
+    setTab(nextTab);
+    setServed((s) => s && { ...s, grade, tip });
   };
 
   const nextCustomer = async () => {
-    if (shiftOver(shift) && !summaryOpen) {
-      setSummaryOpen(true);
-      return;
-    }
     setLoadingCustomer(true);
     const next = await (upcoming.current ?? fetchOrder(recent, memoryId, choiceMode));
     setLoadingCustomer(false);
@@ -280,84 +266,73 @@ export default function BarStation() {
           <button
             type="button"
             onClick={nextCustomer}
-            disabled={loadingCustomer || summaryOpen || (!!served && !served.grade)}
+            disabled={loadingCustomer || (!!served && !served.grade)}
             className="text-xs text-stone-400 underline-offset-2 hover:text-stone-200 hover:underline disabled:opacity-40"
           >
             Skip customer
           </button>
         </header>
 
-        <ShiftBar
-          shiftNumber={shift.number}
-          customer={shift.served.length + (served ? 0 : 1)}
-          tips={shiftTips(shift)}
-          streak={shift.streak}
+        <StatsBar
+          served={tab.served}
+          tips={tab.tips}
+          streak={tab.streak}
           seconds={seconds}
           par={parSeconds(recipe)}
         />
 
-        {summaryOpen ? (
-          <ShiftSummary shift={shift} onNextShift={startNextShift} remembered={!!memoryId} />
-        ) : (
-          <>
-            <CustomerPanel order={order} arrival={arrival} loading={loadingCustomer} reaction={served?.grade?.reaction} />
-            {loadingCustomer && <p className="-mt-2 text-sm text-amber-200">Someone&apos;s walking up…</p>}
+          <CustomerPanel order={order} arrival={arrival} loading={loadingCustomer} reaction={served?.grade?.reaction} />
+          {loadingCustomer && <p className="-mt-2 text-sm text-amber-200">Someone&apos;s walking up…</p>}
 
-            {served ? (
-              <>
-                <GradeCard
-                  customerName={order.customer.name}
-                  measurement={served.measurement}
-                  score={served.score}
-                  grade={served.grade}
-                  tip={served.tip}
-                />
-                <PrimaryButton onClick={nextCustomer} disabled={loadingCustomer || !served.grade}>
-                  {loadingCustomer
-                    ? "Someone's walking up…"
-                    : shiftOver(shift)
-                      ? "End of shift"
-                      : "Next customer"}
-                </PrimaryButton>
-              </>
-            ) : (
-              <>
-                <LiveReadout
-                  pouringName={pour.activeId ? INGREDIENTS[pour.activeId].name : null}
-                  targetName={pouringInto === "shaker" ? "shaker tin" : glassName}
-                  currentPourOz={mlToOz(pour.currentPourMl)}
-                  glassOz={mlToOz(liquidMl(drink.inGlass))}
-                  glassCapacityOz={mlToOz(capacityMl(drink, "glass"))}
-                  shakerOz={mlToOz(liquidMl(drink.inShaker))}
-                  shakeSeconds={drink.shakerMix.shakeMs / 1000}
-                  stirSeconds={drink.shakerMix.stirMs / 1000}
-                  capped={drink.shakerCapped}
-                  spilledOz={mlToOz(drink.spilledMl)}
-                />
-                <PrimaryButton onClick={serveDrink}>Serve</PrimaryButton>
-              </>
-            )}
+          {served ? (
+            <>
+              <GradeCard
+                customerName={order.customer.name}
+                measurement={served.measurement}
+                score={served.score}
+                grade={served.grade}
+                tip={served.tip}
+              />
+              <PrimaryButton onClick={nextCustomer} disabled={loadingCustomer || !served.grade}>
+                {loadingCustomer ? "Someone's walking up…" : "Next customer"}
+              </PrimaryButton>
+            </>
+          ) : (
+            <>
+              <LiveReadout
+                pouringName={pour.activeId ? INGREDIENTS[pour.activeId].name : null}
+                targetName={pouringInto === "shaker" ? "shaker tin" : glassName}
+                currentPourOz={mlToOz(pour.currentPourMl)}
+                glassOz={mlToOz(liquidMl(drink.inGlass))}
+                glassCapacityOz={mlToOz(capacityMl(drink, "glass"))}
+                shakerOz={mlToOz(liquidMl(drink.inShaker))}
+                shakeSeconds={drink.shakerMix.shakeMs / 1000}
+                stirSeconds={drink.shakerMix.stirMs / 1000}
+                capped={drink.shakerCapped}
+                spilledOz={mlToOz(drink.spilledMl)}
+              />
+              <PrimaryButton onClick={serveDrink}>Serve</PrimaryButton>
+            </>
+          )}
 
-            <OrderTicket
-              recipe={served?.recipe ?? recipe}
-              special={order.special ?? []}
-              choice={order.choice}
-              ticketNo={arrival}
-              hidden={(memoryMode || !!order.choice) && !served}
-            />
-            {order.targeting && order.targeting.length > 0 && (
-              <section className="rounded-xl border border-sky-800/60 bg-sky-950/40 p-3 text-sm">
-                <p className="text-[11px] uppercase tracking-widest text-sky-300">Targeting your weak spots</p>
-                <p className="mt-0.5 text-xs text-stone-400">This order was picked from your Backboard practice memory:</p>
-                <ul className="mt-1.5 space-y-0.5 text-stone-200">
-                  {order.targeting.map((t) => (
-                    <li key={t}>· {t}</li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </>
-        )}
+          <OrderTicket
+            recipe={served?.recipe ?? recipe}
+            special={order.special ?? []}
+            choice={order.choice}
+            ticketNo={arrival}
+            hidden={(memoryMode || !!order.choice) && !served}
+          />
+          {order.targeting && order.targeting.length > 0 && (
+            <section className="rounded-xl border border-sky-800/60 bg-sky-950/40 p-3 text-sm">
+              <p className="text-[11px] uppercase tracking-widest text-sky-300">Targeting your weak spots</p>
+              <p className="mt-0.5 text-xs text-stone-400">This order was picked from your Backboard practice memory:</p>
+              <ul className="mt-1.5 space-y-0.5 text-stone-200">
+                {order.targeting.map((t) => (
+                  <li key={t}>· {t}</li>
+                ))}
+              </ul>
+            </section>
+          )}
 
         <footer className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-stone-800 pt-3 text-sm text-stone-400">
           <select

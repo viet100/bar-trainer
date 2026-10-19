@@ -2,7 +2,7 @@ import MeasurementReport from "@/components/MeasurementReport";
 import type { Grade } from "@/game/grade";
 import type { Measurement } from "@/game/measure";
 import type { Score } from "@/game/score";
-import type { Tip } from "@/game/shift";
+import type { Tip } from "@/game/tips";
 
 type GradeCardProps = {
   customerName: string;
