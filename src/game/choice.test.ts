@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ML_PER_OZ } from "../lib/pour.ts";
-import { asChoice, CHOICE_PENALTY, CHOICE_RATE, FLAVOR_DRINKS, gradeTarget, identifyClassic, pouredInMeasurement, rollChoice } from "./choice.ts";
+import {
+  asChoice,
+  asForgot,
+  CHOICE_PENALTY,
+  CHOICE_RATE,
+  describeForgotten,
+  FLAVOR_DRINKS,
+  FORGOT_RATE,
+  gradeTarget,
+  identifyClassic,
+  pouredInMeasurement,
+  rollPro,
+} from "./choice.ts";
 import { INITIAL_DRINK, drinkReducer, type DrinkAction } from "./drink.ts";
 import { measureDrink } from "./measure.ts";
 import { classicOrder, recheckOrder, type Order } from "./order.ts";
@@ -25,7 +37,7 @@ test("the drink made is recognized by its ingredients, not its amounts", () => {
   assert.equal(identifyClassic(["heavy-cream", "tonic", "grenadine"]), null, "no classic is close");
 });
 
-const bitter: Order = { ...classicOrder([], () => 0, "bitter") };
+const bitter: Order = { ...classicOrder([], () => 0, { kind: "flavor", flavor: "bitter" }) };
 
 test("bartender's choice grades the classic you made, and whether it fits", () => {
   assert.equal(bitter.choice, "bitter");
@@ -88,11 +100,39 @@ test("only known ingredients with a positive amount count from a sent measuremen
   assert.deepEqual(pouredInMeasurement({ ingredients: "gin" }), []);
 });
 
-test("the toggle only makes flavor requests possible, for about 1 in 6 customers", () => {
-  assert.equal(rollChoice(false, () => 0), undefined, "off: never");
-  assert.equal(rollChoice(true, () => CHOICE_RATE + 0.01), undefined, "on: most customers still name a drink");
-  assert.equal(rollChoice(true, () => 0), "bitter");
-  let asked = 0;
-  for (let i = 0; i < 300; i++) if (rollChoice(true, () => ((i * 37) % 300) / 300)) asked++;
-  assert.equal(asked, 50);
+test("professional mode makes flavor and forgot-the-name customers possible, about 1 in 6 each", () => {
+  assert.equal(rollPro(false, () => 0), null, "off: never");
+  assert.deepEqual(rollPro(true, () => 0), { kind: "flavor", flavor: "bitter" });
+  assert.deepEqual(rollPro(true, () => CHOICE_RATE + 0.01), { kind: "forgot" });
+  assert.equal(rollPro(true, () => CHOICE_RATE + FORGOT_RATE + 0.01), null, "most customers still name a drink");
+  const kinds = { flavor: 0, forgot: 0, none: 0 };
+  for (let i = 0; i < 300; i++) kinds[rollPro(true, () => ((i * 37) % 300) / 300)?.kind ?? "none"]++;
+  assert.deepEqual(kinds, { flavor: 50, forgot: 50, none: 200 });
+});
+
+test("a customer who forgot the name describes the drink without naming it", () => {
+  for (const r of CLASSIC_RECIPES) {
+    const line = describeForgotten(r);
+    assert.ok(!line.toLowerCase().includes(r.name.toLowerCase()), `${r.name}: ${line}`);
+  }
+  assert.equal(
+    describeForgotten(recipe("Negroni")),
+    "I can’t remember what it’s called. It’s made with gin, it’s bitter, and it comes in a rocks glass over ice.",
+  );
+  const order = classicOrder([], () => 0, { kind: "forgot" });
+  assert.equal(order.mystery, true);
+  assert.equal(order.recipe.name, "Margarita");
+  const back = recheckOrder(order);
+  assert.ok(back.ok && back.order.mystery === true, "survives the round trip to grading");
+});
+
+test("a written forgot-the-name order must be a classic and must not say its name", () => {
+  const written = classicOrder([], () => 0); // "Could I get a Margarita, please?"
+  assert.equal(asForgot(written), null, "said the name");
+  const described = { ...written, line: "The tequila one with lime, salt on the rim maybe?" };
+  const forgot = asForgot({ ...described, recipe: { ...described.recipe, garnish: null } });
+  assert.ok(forgot?.mystery);
+  assert.deepEqual(forgot.recipe, recipe("Margarita"), "the classic's exact spec");
+  assert.equal(asForgot({ ...described, line: "a gin and tonic", recipe: recipe("Gin & Tonic") }), null, "& counts as and");
+  assert.equal(asForgot({ ...described, recipe: { ...recipe("Margarita"), name: "Spicy Paloma Fizz" } }), null, "not a classic");
 });

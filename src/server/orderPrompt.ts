@@ -1,7 +1,7 @@
 import { mlToOz } from "@/lib/pour";
 import { GLASSES, GLASS_IDS } from "@/game/glassware";
 import { GARNISHES, INGREDIENTS, INGREDIENT_IDS } from "@/game/ingredients";
-import type { Flavor } from "@/game/choice";
+import type { ProRequest } from "@/game/choice";
 import { MAX_INGREDIENTS, MAX_LIQUOR_OZ, MIN_AGE, SPECIAL_RATE, TECHNIQUES } from "@/game/order";
 import { CLASSIC_RECIPES } from "@/game/recipes";
 
@@ -87,17 +87,20 @@ const SAFE_NAME = /^[\p{L}\p{N} &'.-]{1,40}$/u;
 
 // `weakSpots` are lines recalled from the trainee's Backboard memory (already
 // cleaned by recallBrief). They steer which drink is ordered, never the rules.
-// `choice`: a bartender's-choice customer, who asks for this flavor instead of naming a drink.
-export function buildOrderPrompt(recent: string[], weakSpots: string[] = [], pick = Math.random, choice?: Flavor) {
+// `pro`: a professional-mode customer, who asks for a flavor instead of naming
+// a drink, or forgot the name and describes it.
+export function buildOrderPrompt(recent: string[], weakSpots: string[] = [], pick = Math.random, pro: ProRequest = null) {
   const avoid = recent.filter((n) => SAFE_NAME.test(n)).slice(-5);
   const situation = SITUATIONS[Math.floor(pick() * SITUATIONS.length)];
   // Left alone, the model reuses the same few names.
   const initial = "ABCDEFGHIJKLMNOPRSTVWYZ"[Math.floor(pick() * 23)];
-  const special = !choice && pick() >= 1 - SPECIAL_RATE ? SPECIAL_KINDS[Math.floor(pick() * SPECIAL_KINDS.length)] : null;
+  const special = !pro && pick() >= 1 - SPECIAL_RATE ? SPECIAL_KINDS[Math.floor(pick() * SPECIAL_KINDS.length)] : null;
   const prompt = [
     `Write the next customer. Their first name starts with ${initial}. They are ${situation}.`,
-    choice
-      ? `They want bartender’s choice: they ask for something ${choice} without naming any drink, and leave the pick to the bartender. Still fill drinkName and the spec with a reference drink that is ${choice}.`
+    pro?.kind === "flavor"
+      ? `They want bartender’s choice: they ask for something ${pro.flavor} without naming any drink, and leave the pick to the bartender. Still fill drinkName and the spec with a reference drink that is ${pro.flavor}.`
+      : pro?.kind === "forgot"
+      ? "They forgot the name of their drink: they want one of the reference drinks but only describe it (how it tastes, its spirit, how it's served), and never say its name or list its full recipe. Use that drink's exact name as drinkName and its exact reference spec."
       : special
       ? `They have a special request: they order a drink from the reference specs with exactly one change, ${special}. Use that drink's exact name as drinkName, write the full changed spec, and have them ask for the change out loud.`
       : "If they order a drink from the reference specs, use its spec exactly.",

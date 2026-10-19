@@ -1,5 +1,6 @@
 import { mlToOz } from "../lib/pour.ts";
 import type { Contents } from "./drink.ts";
+import { GLASSES } from "./glassware.ts";
 import { INGREDIENTS, type IngredientId } from "./ingredients.ts";
 import type { Order } from "./order.ts";
 import { CLASSIC_RECIPES, type Recipe } from "./recipes.ts";
@@ -17,12 +18,20 @@ export type Flavor = keyof typeof FLAVOR_DRINKS;
 export const FLAVORS = Object.keys(FLAVOR_DRINKS) as Flavor[];
 export const isFlavor = (v: unknown): v is Flavor => typeof v === "string" && Object.hasOwn(FLAVOR_DRINKS, v);
 
-// With bartender's choice turned on, about this share of customers asks by flavor.
+// Professional mode: about 1 in 6 customers asks by flavor (bartender's
+// choice), and about 1 in 6 forgot their drink's name and describes it, so the
+// bartender has to work it out and make it from memory. Off: neither.
 export const CHOICE_RATE = 1 / 6;
+export const FORGOT_RATE = 1 / 6;
+export type ProRequest = { kind: "flavor"; flavor: Flavor } | { kind: "forgot" } | null;
 
-// Whether the next customer asks by flavor, and which one. Off: never.
-export const rollChoice = (enabled: boolean, pick = Math.random): Flavor | undefined =>
-  enabled && pick() < CHOICE_RATE ? FLAVORS[Math.floor(pick() * FLAVORS.length)] : undefined;
+export function rollPro(enabled: boolean, pick = Math.random): ProRequest {
+  if (!enabled) return null;
+  const roll = pick();
+  if (roll < CHOICE_RATE) return { kind: "flavor", flavor: FLAVORS[Math.floor(pick() * FLAVORS.length)] };
+  if (roll < CHOICE_RATE + FORGOT_RATE) return { kind: "forgot" };
+  return null;
+}
 
 const fits = (flavor: Flavor, name: string) => (FLAVOR_DRINKS[flavor] as readonly string[]).includes(name);
 export const flavorDrinks = (flavor: Flavor) => CLASSIC_RECIPES.filter((r) => fits(flavor, r.name));
@@ -81,4 +90,30 @@ export function asChoice(order: Order, flavor: Flavor, pick = Math.random): Orde
   const options = flavorDrinks(flavor);
   const recipe = fits(flavor, order.recipe.name) ? order.recipe : options[Math.floor(pick() * options.length)];
   return { ...order, recipe, special: [], choice: flavor };
+}
+
+// Names compared loosely: "Gin & Tonic" and "gin and tonic" are the same drink.
+const plain = (s: string) =>
+  s.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
+// Turns a written order into a forgot-the-name one: the classic's exact spec,
+// hidden on the ticket. null: it isn't a classic, or the customer said the
+// name anyway, so there's nothing to work out.
+export function asForgot(order: Order): Order | null {
+  const classic = CLASSIC_RECIPES.find((r) => plain(r.name) === plain(order.recipe.name));
+  if (!classic || plain(order.line).includes(plain(classic.name))) return null;
+  return { ...order, recipe: classic, special: [], mystery: true };
+}
+
+// How a classic-menu customer who forgot the name describes the drink: its
+// spirit, its flavor and how it's served, never the name or the spec.
+export function describeForgotten(recipe: Recipe): string {
+  const spirit = recipe.ingredients.map((i) => INGREDIENTS[i.id]).find((i) => i.category === "spirit");
+  const flavor = FLAVORS.find((f) => fits(f, recipe.name));
+  const glass = GLASSES[recipe.glass].name.toLowerCase();
+  return [
+    `I can’t remember what it’s called. It’s made with ${spirit ? spirit.name.toLowerCase() : "liquor"}`,
+    flavor ? `, it’s ${flavor}` : "",
+    `, and it comes in a ${glass}${glass.endsWith("mug") ? "" : " glass"}${recipe.ice ? " over ice" : ""}.`,
+  ].join("");
 }

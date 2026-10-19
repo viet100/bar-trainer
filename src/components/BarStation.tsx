@@ -8,7 +8,7 @@ import GradeCard from "@/components/sidebar/GradeCard";
 import LiveReadout from "@/components/sidebar/LiveReadout";
 import OrderTicket from "@/components/sidebar/OrderTicket";
 import StatsBar from "@/components/sidebar/StatsBar";
-import { gradeTarget, pouredIds, rollChoice } from "@/game/choice";
+import { gradeTarget, pouredIds, rollPro } from "@/game/choice";
 import { ICE_CUBE_ML, INITIAL_DRINK, capacityMl, drinkReducer, liquidMl, type VesselId } from "@/game/drink";
 import { GLASSES } from "@/game/glassware";
 import { fallbackGrade, type Grade } from "@/game/grade";
@@ -33,18 +33,18 @@ const BarScene = dynamic(() => import("@/components/bar3d/BarScene"), {
 const FIRST_ORDER = classicOrder([], () => 0);
 
 // Never rejects: offline or server errors fall back to the classic menu.
-// choices: bartender's choice mode, where customers ask for a flavor instead of a drink.
-async function fetchOrder(recent: string[], assistantId: string | null, choices: boolean): Promise<Order> {
+// pro: professional mode, where some customers ask for a flavor or forget their drink's name.
+async function fetchOrder(recent: string[], assistantId: string | null, pro: boolean): Promise<Order> {
   try {
     const res = await fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recent, assistantId, choices }),
+      body: JSON.stringify({ recent, assistantId, pro }),
     });
     if (!res.ok) throw new Error(`order failed: ${res.status}`);
     return await res.json();
   } catch {
-    return classicOrder(recent, Math.random, rollChoice(choices));
+    return classicOrder(recent, Math.random, rollPro(pro));
   }
 }
 
@@ -76,7 +76,7 @@ export default function BarStation() {
   const [recent, setRecent] = useState<string[]>([FIRST_ORDER.recipe.name]);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [memoryMode, setMemoryMode] = useState(false);
-  const [choiceMode, setChoiceMode] = useState(false);
+  const [proMode, setProMode] = useState(false);
   const [served, setServed] = useState<Served | null>(null);
   const [tab, setTab] = useState<Tab>(newTab); // endless: drinks served, tips and streak keep adding up
   // Service clock: starts when the customer arrives, stops at Serve.
@@ -114,8 +114,9 @@ export default function BarStation() {
   // Pour assist: only for the vessel being poured into, and only while pouring.
   const gaugeAnchor = useRef<HTMLDivElement>(null);
   const vesselOf = (v: VesselId) => (v === "glass" ? drink.inGlass : drink.inShaker);
-  // No target amounts for bartender's choice: the example spec would give the answer away.
-  const recipeOz = (id: IngredientId) => (order.choice ? null : (recipe.ingredients.find((i) => i.id === id)?.oz ?? null));
+  // No target amounts when the drink is hidden (bartender's choice, forgot the name): they'd give it away.
+  const recipeOz = (id: IngredientId) =>
+    order.choice || order.mystery ? null : (recipe.ingredients.find((i) => i.id === id)?.oz ?? null);
   // Fill level (as the scene draws it) once this ingredient reaches its recipe amount.
   const targetFill = (v: VesselId) => {
     if (!pour.activeId || pouringInto !== v) return null;
@@ -137,8 +138,8 @@ export default function BarStation() {
   useEffect(() => {
     if (arrival !== 1 || prefetchedWith.current === memoryId) return;
     prefetchedWith.current = memoryId;
-    upcoming.current = fetchOrder([FIRST_ORDER.recipe.name], memoryId, choiceMode);
-  }, [arrival, memoryId, choiceMode]);
+    upcoming.current = fetchOrder([FIRST_ORDER.recipe.name], memoryId, proMode);
+  }, [arrival, memoryId, proMode]);
 
   const takeOrder = (next: Order) => {
     pour.reset();
@@ -151,7 +152,7 @@ export default function BarStation() {
     setPouringInto(null);
     setArrivedAt(Date.now());
     setNow(Date.now());
-    upcoming.current = fetchOrder(nextRecent, memoryId, choiceMode);
+    upcoming.current = fetchOrder(nextRecent, memoryId, proMode);
   };
 
   // Tick the service clock once a second until the drink is served.
@@ -189,7 +190,7 @@ export default function BarStation() {
 
   const nextCustomer = async () => {
     setLoadingCustomer(true);
-    const next = await (upcoming.current ?? fetchOrder(recent, memoryId, choiceMode));
+    const next = await (upcoming.current ?? fetchOrder(recent, memoryId, proMode));
     setLoadingCustomer(false);
     takeOrder(next);
   };
@@ -319,8 +320,9 @@ export default function BarStation() {
             recipe={served?.recipe ?? recipe}
             special={order.special ?? []}
             choice={order.choice}
+            mystery={order.mystery}
             ticketNo={arrival}
-            hidden={(memoryMode || !!order.choice) && !served}
+            hidden={(memoryMode || !!order.choice || !!order.mystery) && !served}
           />
           {order.targeting && order.targeting.length > 0 && (
             <section className="rounded-xl border border-sky-800/60 bg-sky-950/40 p-3 text-sm">
@@ -357,14 +359,14 @@ export default function BarStation() {
           <label className="flex items-center gap-1.5">
             <input
               type="checkbox"
-              checked={choiceMode}
+              checked={proMode}
               onChange={(e) => {
-                setChoiceMode(e.target.checked);
+                setProMode(e.target.checked);
                 // The next customer was already fetched under the old setting.
                 upcoming.current = fetchOrder(recent, memoryId, e.target.checked);
               }}
             />
-            Bartender’s choice
+            Professional mode
           </label>
         </footer>
       </aside>

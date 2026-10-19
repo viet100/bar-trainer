@@ -1,4 +1,4 @@
-import { asChoice, rollChoice } from "@/game/choice";
+import { asChoice, asForgot, rollPro } from "@/game/choice";
 import { isAssistantId, recallBrief, WEAKNESS_QUERY } from "@/game/memory";
 import { classicOrder, parseOrder, parseOrderRequest } from "@/game/order";
 import { backboardEnabled, recall } from "@/server/backboard";
@@ -18,8 +18,9 @@ const RECALL_LIMIT = 8;
 const REFUSAL =
   "Sorry, I can't help with that. This endpoint only writes the next bar customer's order from { recent, assistantId }; it doesn't take prompts or questions.";
 
-// POST /api/order { recent?: string[], assistantId?, choices?: boolean } -> Order & { targeting?: string[] }
-// choices: bartender's choice mode, where some customers ask for a flavor instead of a drink.
+// POST /api/order { recent?: string[], assistantId?, pro?: boolean } -> Order & { targeting?: string[] }
+// pro: professional mode, where some customers ask for a flavor instead of a
+// drink, and some forgot their drink's name and describe it instead.
 // Any other body is refused with a 400 and never reaches Gemini.
 // Every Gemini order must pass parseOrder's safety checks. A rejected order is
 // regenerated once; if Gemini is unreachable or keeps failing the checks, the
@@ -28,13 +29,13 @@ export async function POST(request: Request) {
   const body = parseOrderRequest(await request.json().catch(() => null));
   if (!body) return Response.json({ error: REFUSAL }, { status: 400 });
   const { recent } = body;
-  const choice = rollChoice(body.choices);
+  const pro = rollPro(body.pro);
 
   // Over the limit, the customer still arrives, just off the free classic menu.
   const visitor = visitorOf(request);
   if (!allow(`ip:${visitor}`, PER_VISITOR_PER_MIN, MINUTE) || !allow("all", OVERALL_PER_MIN, MINUTE)) {
     console.warn(`[order] rate limited ${visitor}, serving a classic`);
-    return Response.json(classicOrder(recent, Math.random, choice));
+    return Response.json(classicOrder(recent, Math.random, pro));
   }
 
   // The trainee's weak spots from Backboard memory steer the drink choice.
@@ -43,20 +44,26 @@ export async function POST(request: Request) {
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     let raw: unknown;
     try {
-      raw = await generateJson(buildOrderPrompt(recent, weakSpots, Math.random, choice));
+      raw = await generateJson(buildOrderPrompt(recent, weakSpots, Math.random, pro));
     } catch (err) {
       // Every model already failed; asking again would only burn quota.
       console.warn(`[order] Gemini unavailable, serving a classic: ${(err as Error).message}`);
       break;
     }
     const result = parseOrder(raw);
-    if (result.ok) {
-      const order = choice ? asChoice(result.order, choice) : result.order;
-      return Response.json(weakSpots.length ? { ...order, targeting: weakSpots.slice(0, 2) } : order);
+    if (!result.ok) {
+      console.warn(`[order] attempt ${attempt}: rejected Gemini order: ${result.reason}`);
+      continue;
     }
-    console.warn(`[order] attempt ${attempt}: rejected Gemini order: ${result.reason}`);
+    const order =
+      pro?.kind === "flavor" ? asChoice(result.order, pro.flavor) : pro?.kind === "forgot" ? asForgot(result.order) : result.order;
+    if (!order) {
+      console.warn(`[order] attempt ${attempt}: forgot-the-name order said its name or isn't a classic`);
+      continue;
+    }
+    return Response.json(weakSpots.length ? { ...order, targeting: weakSpots.slice(0, 2) } : order);
   }
-  return Response.json(classicOrder(recent, Math.random, choice));
+  return Response.json(classicOrder(recent, Math.random, pro));
 }
 
 // Best effort: no memory, or a memory outage, just means an untargeted order.
