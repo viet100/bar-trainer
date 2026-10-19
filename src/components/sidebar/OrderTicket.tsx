@@ -1,22 +1,31 @@
 import { GLASSES } from "@/game/glassware";
 import { GARNISHES, INGREDIENTS } from "@/game/ingredients";
+import type { Flavor } from "@/game/choice";
 import type { Recipe } from "@/game/recipes";
 
 type OrderTicketProps = {
   recipe: Recipe;
   special: string[]; // the customer's changes from the classic, shown even in memory mode
+  choice?: Flavor; // bartender's choice: the flavor asked for
   ticketNo: number;
   hidden: boolean; // memory mode: name only, make it from memory
 };
 
-export default function OrderTicket({ recipe, special, ticketNo, hidden }: OrderTicketProps) {
+export default function OrderTicket({ recipe, special, choice, ticketNo, hidden }: OrderTicketProps) {
   return (
     <section className="-rotate-1 rounded-sm bg-[#f6efdf] px-4 py-3 font-mono text-stone-900 shadow-lg shadow-black/40">
       <div className="flex justify-between text-[10px] uppercase tracking-widest text-stone-500">
         <span>Order</span>
         <span>#{String(ticketNo).padStart(3, "0")}</span>
       </div>
-      <p className="mt-1 text-lg font-bold leading-tight">{recipe.name}</p>
+      {/* Bartender's choice: the drink stays a secret until it's served */}
+      <p className="mt-1 text-lg font-bold leading-tight">{choice && hidden ? "Bartender’s choice" : recipe.name}</p>
+      {choice && (
+        <div className="mt-2 rounded-sm bg-amber-200 px-2 py-1.5 text-xs">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-900">Asked for</p>
+          <p className="mt-0.5 font-semibold">Something {choice}. Pick a classic that fits.</p>
+        </div>
+      )}
       {special.length > 0 && (
         <div className="mt-2 rounded-sm bg-amber-200 px-2 py-1.5 text-xs">
           <p className="text-[10px] font-bold uppercase tracking-widest text-amber-900">Special request</p>
@@ -30,7 +39,7 @@ export default function OrderTicket({ recipe, special, ticketNo, hidden }: Order
 
       {hidden ? (
         <p className="mt-2 border-t border-dashed border-stone-400 pt-2 text-xs text-stone-600">
-          Memory mode: glass, spec and garnish are up to you.
+          {choice ? "Glass, spec and garnish are up to you." : "Memory mode: glass, spec and garnish are up to you."}
         </p>
       ) : (
         <>

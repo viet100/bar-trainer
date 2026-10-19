@@ -1,4 +1,5 @@
 import { ML_PER_OZ } from "../lib/pour.ts";
+import { flavorDrinks, isFlavor, type Flavor } from "./choice.ts";
 import { GLASSES, type GlassId } from "./glassware.ts";
 import { GARNISHES, INGREDIENTS, type GarnishId, type IngredientId } from "./ingredients.ts";
 import { CLASSIC_RECIPES, type Recipe, type Technique } from "./recipes.ts";
@@ -11,6 +12,7 @@ export type Order = {
   recipe: Recipe; // the exact spec the bartender is graded against
   source: "gemini" | "classic";
   special: string[]; // how this differs from the classic of the same name: the customer's special request
+  choice?: Flavor; // bartender's choice: the customer asked for a flavor, and `recipe` is only an example that fits
   targeting?: string[]; // weak spots from the trainee's memory that this order was picked to practise
 };
 
@@ -177,7 +179,15 @@ export function recheckOrder(order: unknown): ParseResult {
       ? recipe.ingredients.map((i) => (isObject(i) ? { ingredient: i.id, oz: i.oz } : i))
       : recipe.ingredients,
   });
-  return result.ok && order.source === "classic" ? { ok: true, order: { ...result.order, source: "classic" } } : result;
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    order: {
+      ...result.order,
+      source: order.source === "classic" ? "classic" : "gemini",
+      ...(isFlavor(order.choice) && { choice: order.choice }),
+    },
+  };
 }
 
 const REGULARS: Customer[] = [
@@ -191,9 +201,9 @@ const REGULARS: Customer[] = [
 // The only input /api/order takes: recently served drink names and the
 // player's memory id. Anything else (a chat prompt, extra fields, non-string
 // names) is refused before it can reach Gemini.
-const ORDER_REQUEST_KEYS = new Set(["recent", "assistantId"]);
+const ORDER_REQUEST_KEYS = new Set(["recent", "assistantId", "choices"]);
 const MAX_RECENT = 10;
-export type OrderRequest = { recent: string[]; assistantId: unknown };
+export type OrderRequest = { recent: string[]; assistantId: unknown; choices: boolean };
 
 export function parseOrderRequest(body: unknown): OrderRequest | null {
   if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
@@ -201,7 +211,9 @@ export function parseOrderRequest(body: unknown): OrderRequest | null {
   if (Object.keys(fields).some((k) => !ORDER_REQUEST_KEYS.has(k))) return null;
   const recent = fields.recent ?? [];
   if (!Array.isArray(recent) || recent.length > MAX_RECENT || !recent.every((n) => typeof n === "string")) return null;
-  return { recent, assistantId: fields.assistantId };
+  const choices = fields.choices ?? false; // bartender's choice mode
+  if (typeof choices !== "boolean") return null;
+  return { recent, assistantId: fields.assistantId, choices };
 }
 
 // About this share of customers asks for a twist on a classic.
@@ -239,11 +251,13 @@ const TWISTS: Twist[] = [
         : null,
 ];
 
-export function classicOrder(recent: string[] = [], pick = Math.random): Order {
-  const fresh = CLASSIC_RECIPES.filter((r) => !recent.includes(r.name));
-  const pool = fresh.length ? fresh : CLASSIC_RECIPES;
+export function classicOrder(recent: string[] = [], pick = Math.random, choice?: Flavor): Order {
+  const menu = choice ? flavorDrinks(choice) : CLASSIC_RECIPES;
+  const fresh = menu.filter((r) => !recent.includes(r.name));
+  const pool = fresh.length ? fresh : menu;
   const recipe = pool[Math.floor(pick() * pool.length)];
   const customer = REGULARS[Math.floor(pick() * REGULARS.length)];
+  if (choice) return { customer, line: `Bartender’s choice, please. Something ${choice}.`, recipe, source: "classic", special: [], choice };
   const standard: Order = { customer, line: `Could I get a ${recipe.name}, please?`, recipe, source: "classic", special: [] };
   if (pick() < 1 - SPECIAL_RATE) return standard;
   const twists = TWISTS.map((t) => t(recipe)).filter((t) => t !== null);
