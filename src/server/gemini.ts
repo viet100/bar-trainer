@@ -9,6 +9,8 @@ const MODELS = (process.env.GEMINI_MODELS ?? "gemini-3.8-flash,gemini-3.5-flash,
   .filter(Boolean);
 const TIMEOUT_MS = 10_000;
 
+export const geminiEnabled = () => !!process.env.GEMINI_API_KEY;
+
 // Strictest blocking on every category Gemini filters.
 const SAFETY_SETTINGS = [
   "HARM_CATEGORY_HARASSMENT",

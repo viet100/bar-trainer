@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import PourGauge from "@/components/PourGauge";
+import AiNotice, { type AiStatus } from "@/components/sidebar/AiNotice";
 import CustomerPanel from "@/components/sidebar/CustomerPanel";
 import GradeCard from "@/components/sidebar/GradeCard";
 import LiveReadout from "@/components/sidebar/LiveReadout";
@@ -68,7 +69,7 @@ type Served = { recipe: Recipe; measurement: Measurement; score: Score; grade: G
 
 // Owns the game state and splits the screen: the 3D bar on the left, and the
 // customer and order column on the right.
-export default function BarStation() {
+export default function BarStation({ ai }: { ai: AiStatus }) {
   const [drink, dispatch] = useReducer(drinkReducer, INITIAL_DRINK);
   const memoryId = useTraineeMemory(); // Backboard memory; null until ready or if switched off
   const [order, setOrder] = useState<Order>(FIRST_ORDER);
@@ -281,6 +282,7 @@ export default function BarStation() {
           seconds={seconds}
           par={parSeconds(recipe)}
         />
+        <AiNotice {...ai} />
 
           <CustomerPanel order={order} arrival={arrival} loading={loadingCustomer} reaction={served?.grade?.reaction} />
           {loadingCustomer && <p className="-mt-2 text-sm text-amber-200">Someone&apos;s walking up…</p>}
