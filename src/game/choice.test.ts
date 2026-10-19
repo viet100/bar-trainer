@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ML_PER_OZ } from "../lib/pour.ts";
-import { asChoice, CHOICE_PENALTY, FLAVOR_DRINKS, gradeTarget, identifyClassic, pouredInMeasurement } from "./choice.ts";
+import { asChoice, CHOICE_PENALTY, CHOICE_RATE, FLAVOR_DRINKS, gradeTarget, identifyClassic, pouredInMeasurement, rollChoice } from "./choice.ts";
 import { INITIAL_DRINK, drinkReducer, type DrinkAction } from "./drink.ts";
 import { measureDrink } from "./measure.ts";
 import { classicOrder, recheckOrder, type Order } from "./order.ts";
@@ -86,4 +86,13 @@ test("only known ingredients with a positive amount count from a sent measuremen
   );
   assert.deepEqual(pouredInMeasurement(null), []);
   assert.deepEqual(pouredInMeasurement({ ingredients: "gin" }), []);
+});
+
+test("the toggle only makes flavor requests possible, about a third of the time", () => {
+  assert.equal(rollChoice(false, () => 0), undefined, "off: never");
+  assert.equal(rollChoice(true, () => CHOICE_RATE + 0.01), undefined, "on: most customers still name a drink");
+  assert.equal(rollChoice(true, () => 0), "bitter");
+  let asked = 0;
+  for (let i = 0; i < 300; i++) if (rollChoice(true, () => ((i * 37) % 300) / 300)) asked++;
+  assert.equal(asked, 100);
 });
