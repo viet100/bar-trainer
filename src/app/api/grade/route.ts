@@ -1,3 +1,4 @@
+import { gradeTarget, pouredInMeasurement, type ChoiceResult } from "@/game/choice";
 import { fallbackGrade, parseGrade, parseMeasurement, type Grade } from "@/game/grade";
 import { factsFromDrink, isAssistantId } from "@/game/memory";
 import { recheckOrder, type Order } from "@/game/order";
@@ -23,9 +24,12 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const checked = recheckOrder(body?.order);
   if (!checked.ok) return Response.json({ error: `bad order: ${checked.reason}` }, { status: 400 });
-  const measurement = parseMeasurement(body?.measurement, checked.order.recipe);
+  // Bartender's choice: grade against the classic the bartender made.
+  const target = gradeTarget(checked.order, pouredInMeasurement(body?.measurement));
+  const order = { ...checked.order, recipe: target.recipe };
+  const measurement = parseMeasurement(body?.measurement, target.recipe);
   if (!measurement) return Response.json({ error: "bad measurement" }, { status: 400 });
-  const score = scoreDrink(measurement);
+  const score = scoreDrink(measurement, target.choice);
 
   const visitor = visitorOf(request);
   if (!allow(`grade:${visitor}`, PER_VISITOR_PER_MIN, MINUTE) || !allow("grade:all", OVERALL_PER_MIN, MINUTE)) {
@@ -33,15 +37,15 @@ export async function POST(request: Request) {
     return Response.json({ score, grade: fallbackGrade(score) });
   }
 
-  const [grade] = await Promise.all([gradeWithGemini(checked.order, score), saveToMemory(body?.assistantId, checked.order, score)]);
+  const [grade] = await Promise.all([gradeWithGemini(order, score, target.choice), saveToMemory(body?.assistantId, order, score)]);
   return Response.json({ score, grade });
 }
 
-async function gradeWithGemini(order: Order, score: Score): Promise<Grade> {
+async function gradeWithGemini(order: Order, score: Score, choice: ChoiceResult | null): Promise<Grade> {
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     let raw: unknown;
     try {
-      raw = await generateJson(buildGradePrompt(order, score));
+      raw = await generateJson(buildGradePrompt(order, score, choice));
     } catch (err) {
       console.warn(`[grade] Gemini unavailable, using the rubric grade: ${(err as Error).message}`);
       break;

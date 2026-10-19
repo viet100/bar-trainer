@@ -1,5 +1,6 @@
 import { GLASSES } from "./glassware.ts";
 import { GARNISHES, INGREDIENTS } from "./ingredients.ts";
+import { CHOICE_PENALTY, type ChoiceResult } from "./choice.ts";
 import type { Measurement } from "./measure.ts";
 
 // Points per part of the drink, out of 100. Pour accuracy dominates because
@@ -30,7 +31,8 @@ const oz = (n: number) => `${Math.abs(n).toFixed(2)} oz`;
 
 // Deterministic rubric. Gemini later judges within one star of this, so the
 // same drink can't swing from great to bad between runs.
-export function scoreDrink(m: Measurement): Score {
+// `choice`: for a bartender's-choice order, whether the drink fits the flavor asked for.
+export function scoreDrink(m: Measurement, choice: ChoiceResult | null = null): Score {
   const costed: { cost: number; text: string }[] = [];
   const expectedTotal = m.ingredients.reduce((sum, i) => sum + i.expectedOz, 0);
   const volumeShare = (errOz: number) => (expectedTotal > 0 ? (WEIGHTS.volume * Math.abs(errOz)) / expectedTotal : 0);
@@ -95,13 +97,24 @@ export function scoreDrink(m: Measurement): Score {
   const spill = Math.min(MAX_SPILL_PENALTY, m.spilledOz * SPILL_PENALTY_PER_OZ);
   if (m.spilledOz > 0) costed.push({ cost: spill, text: `Spilled ${oz(m.spilledOz)}` });
 
+  const missedFlavor = choice !== null && !choice.fits;
+  if (choice && missedFlavor) {
+    costed.push({
+      cost: CHOICE_PENALTY,
+      text: choice.made
+        ? `They asked for something ${choice.asked}, and a ${choice.made} isn't ${choice.asked}`
+        : `They asked for something ${choice.asked}, and this isn't a drink from the menu`,
+    });
+  }
+
   const raw =
     volume +
     technique +
     (glassOk ? WEIGHTS.glass : 0) +
     (iceOk ? WEIGHTS.ice : 0) +
     (garnishOk ? WEIGHTS.garnish : 0) -
-    spill;
+    spill -
+    (missedFlavor ? CHOICE_PENALTY : 0);
   const points = Math.round(Math.min(100, Math.max(0, raw)));
 
   return {

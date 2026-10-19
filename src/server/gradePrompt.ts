@@ -1,5 +1,6 @@
 import { GLASSES } from "@/game/glassware";
 import { GARNISHES } from "@/game/ingredients";
+import type { ChoiceResult } from "@/game/choice";
 import type { Order } from "@/game/order";
 import type { Score } from "@/game/score";
 import { FREE_POUR_OZ, FREE_POUR_SECONDS } from "@/lib/pour";
@@ -29,12 +30,17 @@ export const GRADE_SCHEMA = {
   propertyOrdering: ["stars", "sendBack", "reaction", "coachTip"],
 };
 
-export function buildGradePrompt(order: Order, score: Score) {
+export function buildGradePrompt(order: Order, score: Score, choice: ChoiceResult | null = null) {
   const { customer, recipe } = order;
   const prompt = [
     `Customer: ${customer.name}, ${customer.vibe}. When ordering they said: "${order.line}"`,
     `Drink: ${recipe.name}, ${GLASSES[recipe.glass].name} glass, ${recipe.technique}, ${recipe.ice ? "on the rocks" : "up"}, garnish: ${recipe.garnish ? GARNISHES[recipe.garnish] : "none"}.`,
     ...(order.special.length ? [`Their special request, changed from the classic: ${order.special.join("; ")}.`] : []),
+    ...(choice
+      ? [
+          `Bartender’s choice: they asked for something ${choice.asked} and let the bartender pick. The bartender made ${choice.made ?? "something that isn’t on the menu"}, which ${choice.fits ? "fits" : "doesn’t fit"} what they asked for.`,
+        ]
+      : []),
     `Rubric: ${score.points}/100, which suggests ${score.stars} stars.`,
     "Measured mistakes, costliest first:",
     ...(score.mistakes.length ? score.mistakes.map((m) => `- ${m}`) : ["- None. The drink matches the spec."]),

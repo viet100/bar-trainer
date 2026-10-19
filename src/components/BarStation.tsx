@@ -9,13 +9,14 @@ import LiveReadout from "@/components/sidebar/LiveReadout";
 import OrderTicket from "@/components/sidebar/OrderTicket";
 import ShiftBar from "@/components/sidebar/ShiftBar";
 import ShiftSummary from "@/components/sidebar/ShiftSummary";
+import { FLAVORS, gradeTarget, pouredIds } from "@/game/choice";
 import { ICE_CUBE_ML, INITIAL_DRINK, capacityMl, drinkReducer, liquidMl, type VesselId } from "@/game/drink";
 import { GLASSES } from "@/game/glassware";
 import { fallbackGrade, type Grade } from "@/game/grade";
 import { INGREDIENTS, type IngredientId } from "@/game/ingredients";
 import { measureDrink, type Measurement } from "@/game/measure";
 import { classicOrder, type Order } from "@/game/order";
-import { CLASSIC_RECIPES } from "@/game/recipes";
+import { CLASSIC_RECIPES, type Recipe } from "@/game/recipes";
 import { scoreDrink, type Score } from "@/game/score";
 import { newShift, parSeconds, recordServe, shiftOver, shiftTips, type Shift, type Tip } from "@/game/shift";
 import { usePourController } from "@/hooks/usePourController";
@@ -33,22 +34,23 @@ const BarScene = dynamic(() => import("@/components/bar3d/BarScene"), {
 const FIRST_ORDER = classicOrder([], () => 0);
 
 // Never rejects: offline or server errors fall back to the classic menu.
-async function fetchOrder(recent: string[], assistantId: string | null): Promise<Order> {
+// choices: bartender's choice mode, where customers ask for a flavor instead of a drink.
+async function fetchOrder(recent: string[], assistantId: string | null, choices: boolean): Promise<Order> {
   try {
     const res = await fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recent, assistantId }),
+      body: JSON.stringify({ recent, assistantId, choices }),
     });
     if (!res.ok) throw new Error(`order failed: ${res.status}`);
     return await res.json();
   } catch {
-    return classicOrder(recent);
+    return classicOrder(recent, Math.random, choices ? FLAVORS[Math.floor(Math.random() * FLAVORS.length)] : undefined);
   }
 }
 
-// Never rejects: if the grader is unreachable, the rubric's own grade is used.
-async function fetchGrade(order: Order, measurement: Measurement, assistantId: string | null): Promise<Grade> {
+// Never rejects: if the grader is unreachable, the rubric's own grade (from `score`) is used.
+async function fetchGrade(order: Order, measurement: Measurement, assistantId: string | null, score: Score): Promise<Grade> {
   try {
     const res = await fetch("/api/grade", {
       method: "POST",
@@ -58,11 +60,12 @@ async function fetchGrade(order: Order, measurement: Measurement, assistantId: s
     if (!res.ok) throw new Error(`grade failed: ${res.status}`);
     return (await res.json()).grade;
   } catch {
-    return fallbackGrade(scoreDrink(measurement));
+    return fallbackGrade(score);
   }
 }
 
-type Served = { measurement: Measurement; score: Score; grade: Grade | null; tip: Tip | null };
+// recipe: what the drink was graded against (for bartender's choice, the classic the player made).
+type Served = { recipe: Recipe; measurement: Measurement; score: Score; grade: Grade | null; tip: Tip | null };
 
 // Owns the game state and splits the screen: the 3D bar on the left, and the
 // customer and order column on the right.
@@ -74,6 +77,7 @@ export default function BarStation() {
   const [recent, setRecent] = useState<string[]>([FIRST_ORDER.recipe.name]);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [memoryMode, setMemoryMode] = useState(false);
+  const [choiceMode, setChoiceMode] = useState(false);
   const [served, setServed] = useState<Served | null>(null);
   const [shift, setShift] = useState<Shift>(() => newShift());
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -113,7 +117,8 @@ export default function BarStation() {
   const [assist, setAssist] = useState<AssistLevel>("learn");
   const gaugeAnchor = useRef<HTMLDivElement>(null);
   const vesselOf = (v: VesselId) => (v === "glass" ? drink.inGlass : drink.inShaker);
-  const recipeOz = (id: IngredientId) => recipe.ingredients.find((i) => i.id === id)?.oz ?? null;
+  // No target amounts for bartender's choice: the example spec would give the answer away.
+  const recipeOz = (id: IngredientId) => (order.choice ? null : (recipe.ingredients.find((i) => i.id === id)?.oz ?? null));
   // Fill level (as the scene draws it) once this ingredient reaches its recipe amount.
   const targetFill = (v: VesselId) => {
     if (assist !== "learn" || !pour.activeId || pouringInto !== v) return null;
@@ -135,8 +140,8 @@ export default function BarStation() {
   useEffect(() => {
     if (arrival !== 1 || prefetchedWith.current === memoryId) return;
     prefetchedWith.current = memoryId;
-    upcoming.current = fetchOrder([FIRST_ORDER.recipe.name], memoryId);
-  }, [arrival, memoryId]);
+    upcoming.current = fetchOrder([FIRST_ORDER.recipe.name], memoryId, choiceMode);
+  }, [arrival, memoryId, choiceMode]);
 
   const takeOrder = (next: Order) => {
     pour.reset();
@@ -149,7 +154,7 @@ export default function BarStation() {
     setPouringInto(null);
     setArrivedAt(Date.now());
     setNow(Date.now());
-    upcoming.current = fetchOrder(nextRecent, memoryId);
+    upcoming.current = fetchOrder(nextRecent, memoryId, choiceMode);
   };
 
   // Tick the service clock once a second until the drink is served.
@@ -166,18 +171,21 @@ export default function BarStation() {
 
   const serveDrink = async () => {
     stopPouring();
-    const measurement = measureDrink(drink, recipe);
+    // Bartender's choice: grade against the classic the player actually made.
+    const target = gradeTarget(order, pouredIds(drink.inGlass.contents));
+    const measurement = measureDrink(drink, target.recipe);
+    const score = scoreDrink(measurement, target.choice);
     const servedSeconds = arrivedAt ? (Date.now() - arrivedAt) / 1000 : 0;
     setNow(Date.now());
-    setServed({ measurement, score: scoreDrink(measurement), grade: null, tip: null });
+    setServed({ recipe: target.recipe, measurement, score, grade: null, tip: null });
 
-    const grade = await fetchGrade(order, measurement, memoryId);
+    const grade = await fetchGrade(order, measurement, memoryId, score);
     const nextShift = recordServe(shift, {
-      drink: recipe.name,
+      drink: target.recipe.name,
       stars: grade.stars,
       sendBack: grade.sendBack,
       seconds: servedSeconds,
-      par: parSeconds(recipe),
+      par: parSeconds(target.recipe),
       measurement,
     });
     setShift(nextShift);
@@ -196,14 +204,14 @@ export default function BarStation() {
       return;
     }
     setLoadingCustomer(true);
-    const next = await (upcoming.current ?? fetchOrder(recent, memoryId));
+    const next = await (upcoming.current ?? fetchOrder(recent, memoryId, choiceMode));
     setLoadingCustomer(false);
     takeOrder(next);
   };
 
   const practiceClassic = (index: number) => {
     const r = CLASSIC_RECIPES[index];
-    takeOrder({ ...order, recipe: r, line: `Could I get a ${r.name}, please?`, source: "classic", special: [] });
+    takeOrder({ ...order, recipe: r, line: `Could I get a ${r.name}, please?`, source: "classic", special: [], choice: undefined });
   };
 
   return (
@@ -329,7 +337,13 @@ export default function BarStation() {
               </>
             )}
 
-            <OrderTicket recipe={recipe} special={order.special ?? []} ticketNo={arrival} hidden={memoryMode && !served} />
+            <OrderTicket
+              recipe={served?.recipe ?? recipe}
+              special={order.special ?? []}
+              choice={order.choice}
+              ticketNo={arrival}
+              hidden={(memoryMode || !!order.choice) && !served}
+            />
             {order.targeting && order.targeting.length > 0 && (
               <section className="rounded-xl border border-sky-800/60 bg-sky-950/40 p-3 text-sm">
                 <p className="text-[11px] uppercase tracking-widest text-sky-300">Targeting your weak spots</p>
@@ -363,6 +377,18 @@ export default function BarStation() {
           <label className="flex items-center gap-1.5">
             <input type="checkbox" checked={memoryMode} onChange={(e) => setMemoryMode(e.target.checked)} />
             Memory mode
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={choiceMode}
+              onChange={(e) => {
+                setChoiceMode(e.target.checked);
+                // The next customer was already fetched under the old setting.
+                upcoming.current = fetchOrder(recent, memoryId, e.target.checked);
+              }}
+            />
+            Bartender’s choice
           </label>
           <div className="flex w-full items-center justify-between gap-2">
             <span>Pour assist</span>
