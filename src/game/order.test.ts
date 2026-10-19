@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { classicOrder, parseOrder, parseOrderRequest } from "./order.ts";
+import { classicOrder, parseOrder, parseOrderRequest, recheckOrder, specialChanges } from "./order.ts";
 import { CLASSIC_RECIPES } from "./recipes.ts";
 
 const valid = {
@@ -154,4 +154,45 @@ test("the order endpoint only accepts recent drink names and a memory id", () =>
   assert.equal(parseOrderRequest({ recent: Array(11).fill("Negroni") }), null);
   assert.equal(parseOrderRequest(null), null);
   assert.equal(parseOrderRequest(["Negroni"]), null);
+});
+
+const negroni = CLASSIC_RECIPES.find((r) => r.name === "Negroni")!;
+
+test("a special request is worked out from the classic of the same name", () => {
+  assert.deepEqual(specialChanges(negroni), []);
+  assert.deepEqual(specialChanges({ ...negroni, name: "negroni", technique: "shake", garnish: "lemon-twist" }), [
+    "Shaken, not stirred",
+    "Lemon twist, not orange peel",
+  ]);
+  const vodka = { ...negroni, ingredients: [{ id: "vodka" as const, oz: 1 }, ...negroni.ingredients.slice(1)] };
+  assert.deepEqual(specialChanges(vodka), ["Add 1 oz Vodka", "No Gin"]);
+  assert.deepEqual(specialChanges({ ...negroni, name: "House Spritz" }), [], "not a classic: nothing to compare");
+  const r = parseOrder(valid);
+  assert.ok(r.ok);
+  assert.deepEqual(r.order.special, [], "a Margarita made to spec is not special");
+});
+
+// pick() that returns these values in turn: recipe, customer, special?, which twist
+const picks = (...xs: number[]) => {
+  let i = 0;
+  return () => xs[i++] ?? 0;
+};
+
+test("some classic-menu customers ask for one twist, and say it", () => {
+  const plain = classicOrder([], picks(0, 0, 0));
+  assert.deepEqual(plain.special, []);
+  const twisted = classicOrder([], picks(0, 0, 0.99, 0)); // Margarita, garnish twist
+  assert.equal(twisted.recipe.garnish, "lemon-wheel");
+  assert.deepEqual(twisted.special, ["Lemon wheel, not lime wedge"]);
+  assert.match(twisted.line, /instead of the lime wedge/);
+});
+
+test("every twist on every classic still passes the order checks", () => {
+  CLASSIC_RECIPES.forEach((_, i) => {
+    for (const which of [0, 0.4, 0.8]) {
+      const order = classicOrder([], picks((i + 0.5) / CLASSIC_RECIPES.length, 0, 0.99, which));
+      assert.ok(recheckOrder(order).ok, `${order.recipe.name}: ${order.line}`);
+      assert.ok(order.special.length <= 2, `${order.recipe.name}: one twist at most changes glass and ice together`);
+    }
+  });
 });

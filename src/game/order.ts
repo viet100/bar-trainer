@@ -10,6 +10,7 @@ export type Order = {
   line: string; // what the customer says
   recipe: Recipe; // the exact spec the bartender is graded against
   source: "gemini" | "classic";
+  special: string[]; // how this differs from the classic of the same name: the customer's special request
   targeting?: string[]; // weak spots from the trainee's memory that this order was picked to practise
 };
 
@@ -122,10 +123,37 @@ export function parseOrder(raw: unknown): ParseResult {
     if (totalMl > GLASSES[glass].capacityMl * (raw.ice ? ICE_ROOM : 1)) throw new Error(`drink doesn't fit a ${glass} glass`);
 
     const recipe: Recipe = { name: text(raw.drinkName, "drink name"), glass, ingredients, technique, ice: raw.ice, garnish };
-    return { ok: true, order: { customer, line, recipe, source: "gemini" } };
+    return { ok: true, order: { customer, line, recipe, source: "gemini", special: specialChanges(recipe) } };
   } catch (err) {
     return { ok: false, reason: (err as Error).message };
   }
+}
+
+const PAST: Record<Technique, string> = { build: "built", shake: "shaken", stir: "stirred" };
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+const garnishName = (g: GarnishId | null) => (g ? GARNISHES[g].toLowerCase() : "no garnish");
+
+// What a customer changed from the classic of the same name, in words for the
+// ticket ("Shaken, not stirred"). Worked out from the spec itself, so the
+// ticket can't disagree with what's graded. A drink that isn't a classic has none.
+export function specialChanges(recipe: Recipe): string[] {
+  const classic = CLASSIC_RECIPES.find((r) => r.name.toLowerCase() === recipe.name.toLowerCase());
+  if (!classic) return [];
+  const changes: string[] = [];
+  if (recipe.technique !== classic.technique) changes.push(`${cap(PAST[recipe.technique])}, not ${PAST[classic.technique]}`);
+  if (recipe.ice !== classic.ice) changes.push(recipe.ice ? "On the rocks, not up" : "Up, not on the rocks");
+  if (recipe.glass !== classic.glass) changes.push(`${GLASSES[recipe.glass].name} glass, not ${GLASSES[classic.glass].name.toLowerCase()}`);
+  if (recipe.garnish !== classic.garnish) changes.push(`${cap(garnishName(recipe.garnish))}, not ${garnishName(classic.garnish)}`);
+  const before = new Map(classic.ingredients.map((i) => [i.id, i.oz]));
+  for (const i of recipe.ingredients) {
+    const was = before.get(i.id);
+    if (was === undefined) changes.push(`Add ${i.oz} oz ${INGREDIENTS[i.id].name}`);
+    else if (was !== i.oz) changes.push(`${INGREDIENTS[i.id].name}: ${i.oz} oz, not ${was}`);
+  }
+  for (const i of classic.ingredients) {
+    if (!recipe.ingredients.some((r) => r.id === i.id)) changes.push(`No ${INGREDIENTS[i.id].name}`);
+  }
+  return changes;
 }
 
 // An order that went to the browser and came back is untrusted again; this
@@ -176,10 +204,52 @@ export function parseOrderRequest(body: unknown): OrderRequest | null {
   return { recent, assistantId: fields.assistantId };
 }
 
+// About this share of customers asks for a twist on a classic.
+export const SPECIAL_RATE = 0.3;
+
+// Twists the classic menu can make on its own, each changing one thing and
+// saying it the way a customer would. null: this twist doesn't suit the drink.
+type Twist = (r: Recipe) => { recipe: Recipe; ask: string } | null;
+const SWAP_GARNISH: Partial<Record<GarnishId, GarnishId>> = {
+  "lime-wedge": "lemon-wheel",
+  "lemon-twist": "orange-peel",
+  "lemon-wheel": "lime-wedge",
+  olive: "lemon-twist",
+  "orange-peel": "lemon-twist",
+  "orange-wheel": "cherry",
+  cherry: "orange-peel",
+  mint: "lime-wedge",
+};
+const TWISTS: Twist[] = [
+  (r) => {
+    const g = r.garnish && SWAP_GARNISH[r.garnish];
+    return g ? { recipe: { ...r, garnish: g }, ask: `with a ${garnishName(g)} instead of the ${garnishName(r.garnish)}` } : null;
+  },
+  (r) =>
+    r.technique === "build"
+      ? null
+      : r.technique === "shake"
+        ? { recipe: { ...r, technique: "stir" }, ask: "stirred, not shaken" }
+        : { recipe: { ...r, technique: "shake" }, ask: "shaken, not stirred" },
+  (r) =>
+    !r.ice && r.glass !== "shot"
+      ? { recipe: { ...r, ice: true, glass: "rocks" }, ask: "on the rocks" }
+      : r.ice && r.glass === "rocks"
+        ? { recipe: { ...r, ice: false, glass: "coupe" }, ask: "up, in a coupe" }
+        : null,
+];
+
 export function classicOrder(recent: string[] = [], pick = Math.random): Order {
   const fresh = CLASSIC_RECIPES.filter((r) => !recent.includes(r.name));
   const pool = fresh.length ? fresh : CLASSIC_RECIPES;
   const recipe = pool[Math.floor(pick() * pool.length)];
   const customer = REGULARS[Math.floor(pick() * REGULARS.length)];
-  return { customer, line: `Could I get a ${recipe.name}, please?`, recipe, source: "classic" };
+  const standard: Order = { customer, line: `Could I get a ${recipe.name}, please?`, recipe, source: "classic", special: [] };
+  if (pick() < 1 - SPECIAL_RATE) return standard;
+  const twists = TWISTS.map((t) => t(recipe)).filter((t) => t !== null);
+  const twist = twists[Math.floor(pick() * twists.length)];
+  if (!twist) return standard;
+  // The twisted spec goes through the same checks as any order (it must still fit its glass).
+  const checked = recheckOrder({ ...standard, recipe: twist.recipe, line: `Could I get a ${recipe.name}, ${twist.ask}, please?` });
+  return checked.ok ? checked.order : standard;
 }

@@ -34,6 +34,7 @@ export function buildGradePrompt(order: Order, score: Score) {
   const prompt = [
     `Customer: ${customer.name}, ${customer.vibe}. When ordering they said: "${order.line}"`,
     `Drink: ${recipe.name}, ${GLASSES[recipe.glass].name} glass, ${recipe.technique}, ${recipe.ice ? "on the rocks" : "up"}, garnish: ${recipe.garnish ? GARNISHES[recipe.garnish] : "none"}.`,
+    ...(order.special.length ? [`Their special request, changed from the classic: ${order.special.join("; ")}.`] : []),
     `Rubric: ${score.points}/100, which suggests ${score.stars} stars.`,
     "Measured mistakes, costliest first:",
     ...(score.mistakes.length ? score.mistakes.map((m) => `- ${m}`) : ["- None. The drink matches the spec."]),
